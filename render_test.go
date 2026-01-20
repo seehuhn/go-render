@@ -33,29 +33,44 @@ import (
 )
 
 func TestAgainstReference(t *testing.T) {
+	// Test each case with both approaches:
+	// - Approach A (2D buffers): threshold = MaxInt (always use A)
+	// - Approach B (active edge list): threshold = 0 (always use B)
+	approaches := []struct {
+		name      string
+		threshold int
+	}{
+		{"A", 1 << 30}, // very large threshold forces Approach A
+		{"B", 0},       // zero threshold forces Approach B
+	}
+
 	for _, category := range slices.Sorted(maps.Keys(testcases.All)) {
 		for _, tc := range testcases.All[category] {
-			name := category + "_" + tc.Name
-			t.Run(name, func(t *testing.T) {
-				// load reference image
-				refPath := filepath.Join("testdata", "reference", name+".png")
-				ref, err := loadGray(refPath)
-				if err != nil {
-					t.Fatalf("loading reference: %v", err)
-				}
+			baseName := category + "_" + tc.Name
+			for _, approach := range approaches {
+				name := baseName + "_" + approach.name
+				threshold := approach.threshold
+				t.Run(name, func(t *testing.T) {
+					// load reference image
+					refPath := filepath.Join("testdata", "reference", baseName+".png")
+					ref, err := loadGray(refPath)
+					if err != nil {
+						t.Fatalf("loading reference: %v", err)
+					}
 
-				// allocate output buffer
-				w, h := tc.Width, tc.Height
-				actual := make([]byte, w*h)
+					// allocate output buffer
+					w, h := tc.Width, tc.Height
+					actual := make([]byte, w*h)
 
-				// render
-				renderExample(tc, actual, w, h, w)
+					// render with specified approach threshold
+					renderExample(tc, actual, w, h, w, threshold)
 
-				// compare
-				if err := compareImages(name, ref, actual, w, h); err != nil {
-					t.Error(err)
-				}
-			})
+					// compare
+					if err := compareImages(name, ref, actual, w, h); err != nil {
+						t.Error(err)
+					}
+				})
+			}
 		}
 	}
 }
@@ -63,7 +78,8 @@ func TestAgainstReference(t *testing.T) {
 // renderExample renders a test case into a grayscale buffer.
 // The buffer is pre-initialized with zeros, in row-major order.
 // Each byte represents coverage from 0 (transparent) to 255 (opaque).
-func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int) {
+// The threshold parameter controls the Approach A/B cutoff for testing.
+func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int, threshold int) {
 	clip := rect.Rect{
 		LLx: 0,
 		LLy: 0,
@@ -71,6 +87,7 @@ func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int)
 		URy: float64(height),
 	}
 	r := NewRasteriser(clip)
+	r.smallPathThreshold = threshold
 
 	// Apply CTM (zero-value means identity, which is already the default)
 	if tc.CTM != (matrix.Matrix{}) {

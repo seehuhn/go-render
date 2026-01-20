@@ -99,6 +99,11 @@ type Rasteriser struct {
 	// DashPhase is the offset into the dash pattern.
 	DashPhase float64
 
+	// smallPathThreshold is the maximum bounding box area (in pixels) for
+	// using 2D buffers (Approach A). Paths with larger bounding boxes use
+	// the active edge list (Approach B).
+	smallPathThreshold int
+
 	// Internal buffers (reused across calls)
 	cover  []float32  // coverage accumulation: cover change per pixel
 	area   []float32  // coverage accumulation: area within pixel
@@ -114,13 +119,14 @@ type Rasteriser struct {
 // and PDF default values for all other parameters.
 func NewRasteriser(clip rect.Rect) *Rasteriser {
 	return &Rasteriser{
-		CTM:        matrix.Identity,
-		Clip:       clip,
-		Flatness:   DefaultFlatness,
-		Width:      1.0,
-		Cap:        graphics.LineCapButt,
-		Join:       graphics.LineJoinMiter,
-		MiterLimit: DefaultMiterLimit,
+		CTM:                matrix.Identity,
+		Clip:               clip,
+		Flatness:           DefaultFlatness,
+		Width:              1.0,
+		Cap:                graphics.LineCapButt,
+		Join:               graphics.LineJoinMiter,
+		MiterLimit:         DefaultMiterLimit,
+		smallPathThreshold: smallPathThreshold,
 	}
 }
 
@@ -160,7 +166,7 @@ func (r *Rasteriser) fill(p path.Path, rule fillRule, emit func(y, xMin int, cov
 	width := xMax - xMin
 	height := yMax - yMin
 
-	if width*height < smallPathThreshold {
+	if width*height < r.smallPathThreshold {
 		r.fill2D(xMin, xMax, yMin, yMax, rule, emit)
 	} else {
 		r.fillScanline(xMin, xMax, yMin, yMax, rule, emit)

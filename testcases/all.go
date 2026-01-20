@@ -27,4 +27,5 @@ var All = map[string][]TestCase{
 	"complex":   complexCases,
 	"subpath":   subpathCases,
 	"ctm":       ctmCases,
+	"large":     largeCases,
 }
