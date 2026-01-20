@@ -14,29 +14,29 @@ to cairo-generated reference images.
 - star_nonzero, star_evenodd (self-intersecting)
 
 **To add:**
-- [ ] Concentric rectangles (nonzero vs even-odd) — nested shapes, winding matters
-- [ ] Overlapping circles — multiple intersecting regions
-- [ ] Figure-eight (self-crossing loop) — single subpath crossing itself
-- [ ] High winding number — shape wound 3+ times in same direction
-- [ ] Alternating winding — clockwise inside counter-clockwise
+- [x] Concentric rectangles (nonzero vs even-odd) — nested shapes, winding matters
+- [x] Overlapping circles — multiple intersecting regions
+- [x] Figure-eight (self-crossing loop) — single subpath crossing itself
+- [x] High winding number — shape wound 3+ times in same direction
+- [x] Alternating winding — clockwise inside counter-clockwise
 
 ### 1.2 Edge Cases
 
-- [ ] Horizontal edges only (axis-aligned rectangle)
-- [ ] Vertical edges only (tall thin rectangle)
-- [ ] 45° diagonal edges
-- [ ] Near-horizontal edges (slope < 0.01)
-- [ ] Near-vertical edges (slope > 100)
-- [ ] Single-pixel coverage (tiny triangle)
-- [ ] Subpixel shape (entirely within one pixel)
+- [x] Horizontal edges only (axis-aligned rectangle)
+- [x] Vertical edges only (tall thin rectangle)
+- [x] 45° diagonal edges
+- [x] Near-horizontal edges (slope < 0.01)
+- [x] Near-vertical edges (slope > 100)
+- [x] Single-pixel coverage (tiny triangle)
+- [x] Subpixel shape (entirely within one pixel)
 
 ### 1.3 Boundary Conditions
 
-- [ ] Shape touching canvas edge
-- [ ] Shape partially clipped by canvas
-- [ ] Shape fully outside canvas (should produce no output)
-- [ ] Pixel-aligned rectangle (should have no antialiasing on edges)
-- [ ] Half-pixel offset rectangle (maximum antialiasing)
+- [x] Shape touching canvas edge
+- [x] Shape partially clipped by canvas
+- [x] Shape fully outside canvas (should produce no output)
+- [x] Pixel-aligned rectangle (should have no antialiasing on edges)
+- [x] Half-pixel offset rectangle (maximum antialiasing)
 
 ---
 
@@ -48,10 +48,10 @@ to cairo-generated reference images.
 - Width 8 (caps), width 6 (joins), width 4 (dashed)
 
 **To add:**
-- [ ] Very thin stroke (width 0.5) — subpixel line
-- [ ] Thin stroke (width 1.0) — single pixel
-- [ ] Thick stroke (width 20) — wide line
-- [ ] Width equal to dash length — boundary case
+- [x] Very thin stroke (width 0.5) — subpixel line
+- [x] Thin stroke (width 1.0) — single pixel
+- [x] Thick stroke (width 20) — wide line
+- [x] Width equal to dash length — boundary case
 
 ### 2.2 Line Caps
 
@@ -59,14 +59,14 @@ to cairo-generated reference images.
 - Butt, round, square on horizontal line
 
 **To add:**
-- [ ] Caps on vertical line
-- [ ] Caps on 45° diagonal line
-- [ ] Caps on 30° diagonal line (asymmetric)
-- [ ] Caps on very short segment (length < width)
-- [ ] Caps where segment length equals width
-- [ ] Zero-length subpath with round cap (should draw filled circle)
-- [ ] Zero-length subpath with butt cap (should draw nothing)
-- [ ] Zero-length subpath with square cap (should draw nothing)
+- [x] Caps on vertical line
+- [x] Caps on 45° diagonal line
+- [x] Caps on 30° diagonal line (asymmetric)
+- [x] Caps on very short segment (length < width)
+- [x] Caps where segment length equals width
+- [x] Zero-length subpath with round cap (should draw filled circle)
+- [x] Zero-length subpath with butt cap (should draw nothing)
+- [x] Zero-length subpath with square cap (should draw nothing)
 
 ### 2.3 Line Joins
 
@@ -74,17 +74,17 @@ to cairo-generated reference images.
 - Miter, round, bevel on ~70° angle
 
 **To add:**
-- [ ] Join at 90° (right angle)
-- [ ] Join at 120° (obtuse)
-- [ ] Join at 45° (acute)
-- [ ] Join at 30° (sharp acute)
-- [ ] Join at 15° (very sharp, miter limit test)
-- [ ] Join at 170° (near-straight, almost no join visible)
-- [ ] Join at 179° (near-cusp)
-- [ ] Left turn vs right turn (both directions)
-- [ ] Three-segment path (two consecutive joins)
-- [ ] Closed triangle (three joins, no caps)
-- [ ] Closed square (four 90° joins)
+- [x] Join at 90° (right angle)
+- [x] Join at 120° (obtuse)
+- [x] Join at 45° (acute)
+- [x] Join at 30° (sharp acute)
+- [x] Join at 15° (very sharp, miter limit test)
+- [x] Join at 170° (near-straight, almost no join visible)
+- [x] Join at 179° (near-cusp)
+- [x] Left turn vs right turn (both directions)
+- [x] Three-segment path (two consecutive joins)
+- [x] Closed triangle (three joins, no caps)
+- [x] Closed square (four 90° joins)
 
 ### 2.4 Miter Limit
 
@@ -92,18 +92,18 @@ to cairo-generated reference images.
 - Miter limit 10 (default)
 
 **To add:**
-- [ ] Miter limit 1.0 (always bevel)
-- [ ] Miter limit 1.414 (bevel below 90°)
-- [ ] Miter limit 2.0 (bevel below 60°)
-- [ ] Angle just below miter cutoff (shows miter)
-- [ ] Angle just above miter cutoff (shows bevel)
-- [ ] Same angle with different miter limits (comparison)
+- [x] Miter limit 1.0 (always bevel)
+- [x] Miter limit 1.414 (bevel below 90°)
+- [x] Miter limit 2.0 (bevel below 60°)
+- [x] Angle just below miter cutoff (shows miter)
+- [x] Angle just above miter cutoff (shows bevel)
+- [x] Same angle with different miter limits (comparison)
 
 ### 2.5 Cusp Handling
 
-- [ ] 180° turn (exact reversal) — should show two caps
-- [ ] 179.5° turn — should show two caps (cusp threshold)
-- [ ] 178° turn — should show normal join
+- [x] 180° turn (exact reversal) — should show two caps
+- [x] 179.5° turn — should show two caps (cusp threshold)
+- [x] 178° turn — should show normal join
 
 ---
 
@@ -115,36 +115,36 @@ to cairo-generated reference images.
 - [8, 4] pattern on horizontal line
 
 **To add:**
-- [ ] Single-element pattern [10] (becomes [10, 10])
-- [ ] Three-element pattern [5, 3, 8] (becomes [5, 3, 8, 5, 3, 8])
-- [ ] Long dash, short gap [20, 2]
-- [ ] Short dash, long gap [2, 20]
-- [ ] Equal dash and gap [10, 10]
-- [ ] Many elements [2, 2, 6, 2, 2, 10]
+- [x] Single-element pattern [10] (becomes [10, 10])
+- [x] Three-element pattern [5, 3, 8] (becomes [5, 3, 8, 5, 3, 8])
+- [x] Long dash, short gap [20, 2]
+- [x] Short dash, long gap [2, 20]
+- [x] Equal dash and gap [10, 10]
+- [x] Many elements [2, 2, 6, 2, 2, 10]
 
 ### 3.2 Dash Phase
 
-- [ ] Phase = 0 (default, starts with dash)
-- [ ] Phase = half dash length (starts mid-dash)
-- [ ] Phase = dash length (starts with gap)
-- [ ] Phase = pattern length (same as phase 0)
-- [ ] Negative phase (wraps around)
-- [ ] Large negative phase
+- [x] Phase = 0 (default, starts with dash)
+- [x] Phase = half dash length (starts mid-dash)
+- [x] Phase = dash length (starts with gap)
+- [x] Phase = pattern length (same as phase 0)
+- [x] Negative phase (wraps around)
+- [x] Large negative phase
 
 ### 3.3 Zero-Length Dashes
 
-- [ ] Pattern [0, 5] with round cap (dots)
-- [ ] Pattern [0, 5] with butt cap (nothing visible from zero-length)
-- [ ] Pattern [0, 5] with square cap (nothing visible)
-- [ ] Pattern [0, 5, 10, 5] (alternating dots and dashes)
+- [x] Pattern [0, 5] with round cap (dots)
+- [x] Pattern [0, 5] with butt cap (nothing visible from zero-length)
+- [x] Pattern [0, 5] with square cap (nothing visible)
+- [x] Pattern [0, 5, 10, 5] (alternating dots and dashes)
 
 ### 3.4 Dashes at Corners
 
-- [ ] Corner falls within dash — join should appear
-- [ ] Corner falls within gap — no join visible
-- [ ] Dash ends exactly at corner
-- [ ] Dash starts exactly at corner
-- [ ] Very short dash at corner (dash < corner angle span)
+- [x] Corner falls within dash — join should appear
+- [x] Corner falls within gap — no join visible
+- [x] Dash ends exactly at corner
+- [x] Dash starts exactly at corner
+- [x] Very short dash at corner (dash < corner angle span)
 
 ### 3.5 Overlapping Dash Segments (Boundary Case)
 
@@ -152,16 +152,16 @@ This is a critical edge case: when line width is large relative to dash
 length, and a corner occurs between two dash segments, the stroke outlines
 of adjacent dashes may overlap.
 
-- [ ] Thick dashed line with tight corner — width 10, dash [15, 5], 60° corner
-- [ ] Overlapping dash caps at corner — verify no visual artifacts
-- [ ] Multiple corners within one dash pattern cycle
+- [x] Thick dashed line with tight corner — width 10, dash [15, 5], 60° corner
+- [x] Overlapping dash caps at corner — verify no visual artifacts
+- [x] Multiple corners within one dash pattern cycle
 
 ### 3.6 Closed Path Dashing
 
-- [ ] Closed square, dashed — pattern restarts or wraps
-- [ ] First and last dash connect — when both "on", should join not cap
-- [ ] First dash "on", last dash "off" — cap at start, gap at end
-- [ ] Phase chosen so path starts and ends in same dash — proper join
+- [x] Closed square, dashed — pattern restarts or wraps
+- [x] First and last dash connect — when both "on", should join not cap
+- [x] First dash "on", last dash "off" — cap at start, gap at end
+- [x] Phase chosen so path starts and ends in same dash — proper join
 
 ---
 
@@ -173,11 +173,11 @@ of adjacent dashes may overlap.
 - Single quadratic curve (filled)
 
 **To add:**
-- [ ] Shallow quadratic (control point near chord)
-- [ ] Deep quadratic (control point far from chord)
-- [ ] Quadratic with control point below chord (curves other direction)
-- [ ] S-shaped path from two quadratics
-- [ ] Stroked quadratic curve
+- [x] Shallow quadratic (control point near chord)
+- [x] Deep quadratic (control point far from chord)
+- [x] Quadratic with control point below chord (curves other direction)
+- [x] S-shaped path from two quadratics
+- [x] Stroked quadratic curve
 
 ### 4.2 Cubic Bézier
 
@@ -185,14 +185,14 @@ of adjacent dashes may overlap.
 - Single cubic curve (filled)
 
 **To add:**
-- [ ] Shallow cubic
-- [ ] Deep cubic
-- [ ] S-curve (inflection point)
-- [ ] Loop (self-intersecting cubic)
-- [ ] Cusp in cubic (control points arranged to create cusp)
-- [ ] Nearly-straight cubic (control points near chord)
-- [ ] Stroked cubic curve
-- [ ] Stroked S-curve
+- [x] Shallow cubic
+- [x] Deep cubic
+- [x] S-curve (inflection point)
+- [x] Loop (self-intersecting cubic)
+- [x] Cusp in cubic (control points arranged to create cusp)
+- [x] Nearly-straight cubic (control points near chord)
+- [x] Stroked cubic curve
+- [x] Stroked S-curve
 
 ### 4.3 Circle/Ellipse
 
@@ -200,18 +200,18 @@ of adjacent dashes may overlap.
 - Circle approximated by four cubics (filled)
 
 **To add:**
-- [ ] Stroked circle
-- [ ] Small circle (radius 5) — tests segment count at small scale
-- [ ] Large circle (radius 100) — tests segment count at large scale
-- [ ] Ellipse (stretched circle)
-- [ ] Arc (partial circle)
+- [x] Stroked circle
+- [x] Small circle (radius 5) — tests segment count at small scale
+- [x] Large circle (radius 100) — tests segment count at large scale
+- [x] Ellipse (stretched circle)
+- [x] Arc (partial circle)
 
 ### 4.4 Curve Flattening Edge Cases
 
-- [ ] Curve requiring many segments (very detailed)
-- [ ] Curve requiring minimal segments (nearly flat)
-- [ ] Degenerate cubic (all control points coincident)
-- [ ] Degenerate quadratic (control point on endpoint)
+- [x] Curve requiring many segments (very detailed)
+- [x] Curve requiring minimal segments (nearly flat)
+- [x] Degenerate cubic (all control points coincident)
+- [x] Degenerate quadratic (control point on endpoint)
 
 ---
 
@@ -219,24 +219,24 @@ of adjacent dashes may overlap.
 
 ### 5.1 Multiple Subpaths
 
-- [ ] Two separate triangles (disjoint subpaths)
-- [ ] Two overlapping rectangles (nonzero vs even-odd difference)
-- [ ] Ring shape (outer rectangle, inner rectangle cutout)
-- [ ] Multiple rings (donut shapes)
-- [ ] Many small shapes (stress test)
+- [x] Two separate triangles (disjoint subpaths)
+- [x] Two overlapping rectangles (nonzero vs even-odd difference)
+- [x] Ring shape (outer rectangle, inner rectangle cutout)
+- [x] Multiple rings (donut shapes)
+- [x] Many small shapes (stress test)
 
 ### 5.2 Mixed Operations
 
-- [ ] Path with lines and curves mixed
-- [ ] Stroked path with lines and curves
-- [ ] Complex glyph-like shape
+- [x] Path with lines and curves mixed
+- [x] Stroked path with lines and curves
+- [x] Complex glyph-like shape
 
 ### 5.3 Stroke Self-Intersection
 
-- [ ] Spiral that overlaps itself
-- [ ] Figure-eight stroke
-- [ ] Thick stroke on tight curve (inner edge crosses)
-- [ ] Zigzag with thick stroke (adjacent segments overlap)
+- [x] Spiral that overlaps itself
+- [x] Figure-eight stroke
+- [x] Thick stroke on tight curve (inner edge crosses)
+- [x] Zigzag with thick stroke (adjacent segments overlap)
 
 ---
 
@@ -244,17 +244,17 @@ of adjacent dashes may overlap.
 
 ### 6.1 Subpixel Positioning
 
-- [ ] Shape at integer coordinates
-- [ ] Shape offset by 0.25 pixels
-- [ ] Shape offset by 0.5 pixels
-- [ ] Shape offset by 0.75 pixels
-- [ ] Thin line at y=10.0 vs y=10.5 (different coverage patterns)
+- [x] Shape at integer coordinates
+- [x] Shape offset by 0.25 pixels
+- [x] Shape offset by 0.5 pixels
+- [x] Shape offset by 0.75 pixels
+- [x] Thin line at y=10.0 vs y=10.5 (different coverage patterns)
 
 ### 6.2 Large Coordinates
 
-- [ ] Shape centered at (1000, 1000) — tests precision at offset
-- [ ] Very small shape at large offset
-- [ ] Coordinates requiring full float64 precision
+- [x] Shape centered at (1000, 1000) — tests precision at offset
+- [x] Very small shape at large offset
+- [x] Coordinates requiring full float64 precision
 
 ---
 
