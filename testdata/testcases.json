@@ -1,0 +1,654 @@
+{
+  "testcases": [
+    {
+      "name": "curve_quadratic",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "Q",
+          "pts": [
+            [
+              32,
+              10
+            ],
+            [
+              54,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "fill",
+      "fill_rule": "nonzero"
+    },
+    {
+      "name": "curve_cubic",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "C",
+          "pts": [
+            [
+              20,
+              10
+            ],
+            [
+              44,
+              10
+            ],
+            [
+              54,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "fill",
+      "fill_rule": "nonzero"
+    },
+    {
+      "name": "curve_circle",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              57,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "C",
+          "pts": [
+            [
+              57,
+              18.192881254230162
+            ],
+            [
+              45.80711874576984,
+              7
+            ],
+            [
+              32,
+              7
+            ]
+          ]
+        },
+        {
+          "cmd": "C",
+          "pts": [
+            [
+              18.192881254230162,
+              7
+            ],
+            [
+              7,
+              18.192881254230162
+            ],
+            [
+              7,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "C",
+          "pts": [
+            [
+              7,
+              45.80711874576984
+            ],
+            [
+              18.192881254230162,
+              57
+            ],
+            [
+              32,
+              57
+            ]
+          ]
+        },
+        {
+          "cmd": "C",
+          "pts": [
+            [
+              45.80711874576984,
+              57
+            ],
+            [
+              57,
+              45.80711874576984
+            ],
+            [
+              57,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "fill",
+      "fill_rule": "nonzero"
+    },
+    {
+      "name": "fill_triangle_nonzero",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              32,
+              10
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              54,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "fill",
+      "fill_rule": "nonzero"
+    },
+    {
+      "name": "fill_triangle_evenodd",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              32,
+              10
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              54,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "fill",
+      "fill_rule": "evenodd"
+    },
+    {
+      "name": "fill_star_nonzero",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              32,
+              7
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              46.69463130731183,
+              52.22542485937369
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              8.223587092621159,
+              24.274575140626318
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              55.77641290737884,
+              24.274575140626315
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              17.305368692688173,
+              52.22542485937369
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "fill",
+      "fill_rule": "nonzero"
+    },
+    {
+      "name": "fill_star_evenodd",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              32,
+              7
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              46.69463130731183,
+              52.22542485937369
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              8.223587092621159,
+              24.274575140626318
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              55.77641290737884,
+              24.274575140626315
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              17.305368692688173,
+              52.22542485937369
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "fill",
+      "fill_rule": "evenodd"
+    },
+    {
+      "name": "fill_rectangle",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              10
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              44,
+              10
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              44,
+              44
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              10,
+              44
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "fill",
+      "fill_rule": "nonzero"
+    },
+    {
+      "name": "stroke_line_butt",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              54,
+              32
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 8,
+      "line_cap": "butt",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_line_round",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              54,
+              32
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 8,
+      "line_cap": "round",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_line_square",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              54,
+              32
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 8,
+      "line_cap": "square",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_corner_miter",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              32,
+              14
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              54,
+              50
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 6,
+      "line_cap": "butt",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_corner_round",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              32,
+              14
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              54,
+              50
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 6,
+      "line_cap": "butt",
+      "line_join": "round",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_corner_bevel",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              10,
+              50
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              32,
+              14
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              54,
+              50
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 6,
+      "line_cap": "butt",
+      "line_join": "bevel",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_dashed",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              5,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              59,
+              32
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 4,
+      "line_cap": "butt",
+      "line_join": "miter",
+      "miter_limit": 10,
+      "dash": [
+        8,
+        4
+      ]
+    }
+  ]
+}
