@@ -53,7 +53,7 @@ var subpathCases = []TestCase{
 	},
 	{
 		Name:   "multiple_rings",
-		Path:   multipleRings(32, 32, 25),
+		Path:   multipleRings(32, 32),
 		Width:  128,
 		Height: 128,
 		Op:     Fill{Rule: EvenOdd},
@@ -173,7 +173,7 @@ func ringShape(cx, cy, outerSize, innerSize float64) path.Path {
 }
 
 // multipleRings builds multiple concentric donut shapes.
-func multipleRings(cx, cy, maxRadius float64) path.Path {
+func multipleRings(cx, cy float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		// Three concentric rings with different offsets
 		rings := []struct{ cx, cy, outer, inner float64 }{

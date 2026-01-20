@@ -44,11 +44,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(out); err != nil {
+		f.Close()
+		panic(err)
+	}
+	if err := f.Close(); err != nil {
 		panic(err)
 	}
 }

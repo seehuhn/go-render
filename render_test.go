@@ -27,6 +27,8 @@ import (
 	"slices"
 	"testing"
 
+	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/render/testcases"
 )
 
@@ -47,7 +49,7 @@ func TestAgainstReference(t *testing.T) {
 				actual := make([]byte, w*h)
 
 				// render
-				RenderExample(tc, actual, w, h, w)
+				renderExample(tc, actual, w, h, w)
 
 				// compare
 				if err := compareImages(name, ref, actual, w, h); err != nil {
@@ -55,6 +57,50 @@ func TestAgainstReference(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// renderExample renders a test case into a grayscale buffer.
+// The buffer is pre-initialized with zeros, in row-major order.
+// Each byte represents coverage from 0 (transparent) to 255 (opaque).
+func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int) {
+	clip := rect.Rect{
+		LLx: 0,
+		LLy: 0,
+		URx: float64(width),
+		URy: float64(height),
+	}
+	r := NewRasteriser(clip)
+
+	// Apply CTM (zero-value means identity, which is already the default)
+	if tc.CTM != (matrix.Matrix{}) {
+		r.CTM = tc.CTM
+	}
+
+	// Emit callback: convert float32 coverage to bytes
+	emit := func(y, xMin int, coverage []float32) {
+		row := buf[y*stride:]
+		for i, c := range coverage {
+			row[xMin+i] = byte(max(0, min(255, int(c*256))))
+		}
+	}
+
+	// Dispatch based on operation type
+	switch op := tc.Op.(type) {
+	case testcases.Fill:
+		if op.Rule == testcases.EvenOdd {
+			r.FillEvenOdd(tc.Path, emit)
+		} else {
+			r.FillNonZero(tc.Path, emit)
+		}
+	case testcases.Stroke:
+		r.Width = op.Width
+		r.Cap = op.Cap
+		r.Join = op.Join
+		r.MiterLimit = op.MiterLimit
+		r.Dash = op.Dash
+		r.DashPhase = op.DashPhase
+		r.Stroke(tc.Path, emit)
 	}
 }
 
