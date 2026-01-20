@@ -1,17 +1,35 @@
+// seehuhn.de/go/render - a 2D rendering library
+// Copyright (C) 2026  Jochen Voss <voss@seehuhn.de>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package testcases
 
 import (
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/pdf/graphics"
 )
 
 // TestCase defines a single rendering test.
 type TestCase struct {
-	Name   string    // lowercase a-z and _ only
-	Path   path.Path // the geometry to render
-	Width  int       // canvas width in pixels
-	Height int       // canvas height in pixels
-	Op     Operation // fill or stroke
+	Name   string        // lowercase a-z and _ only
+	Path   path.Path     // the geometry to render
+	Width  int           // canvas width in pixels
+	Height int           // canvas height in pixels
+	Op     Operation     // fill or stroke
+	CTM    matrix.Matrix // transformation matrix (zero-value means no transform)
 }
 
 // Operation is the rendering operation to apply to the path.

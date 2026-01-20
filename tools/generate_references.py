@@ -29,6 +29,11 @@ def render_testcase(tc, output_dir):
     surface = cairo.ImageSurface(cairo.FORMAT_A8, w, h)
     ctx = cairo.Context(surface)
 
+    # Apply CTM if present (before building path)
+    if "ctm" in tc and tc["ctm"]:
+        a, b, c, d, e, f = tc["ctm"]
+        ctx.set_matrix(cairo.Matrix(a, b, c, d, e, f))
+
     # build path
     for seg in tc["path"]:
         cmd, pts = seg["cmd"], seg["pts"]

@@ -1,3 +1,19 @@
+// seehuhn.de/go/render - a 2D rendering library
+// Copyright (C) 2026  Jochen Voss <voss@seehuhn.de>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 // Command export writes test case definitions to JSON for the Python reference generator.
 // Run from the go-render module root directory.
 package main
@@ -8,6 +24,7 @@ import (
 	"os"
 	"slices"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/render/testcases"
 )
@@ -49,6 +66,7 @@ type jsonTestCase struct {
 	MiterLimit float64       `json:"miter_limit,omitempty"`
 	Dash       []float64     `json:"dash,omitempty"`
 	DashPhase  float64       `json:"dash_phase,omitempty"`
+	CTM        []float64     `json:"ctm,omitempty"`
 }
 
 type jsonSegment struct {
@@ -81,6 +99,12 @@ func toJSON(category string, tc testcases.TestCase) jsonTestCase {
 		jtc.Dash = op.Dash
 		jtc.DashPhase = op.DashPhase
 	}
+
+	// Only serialize non-trivial CTMs (zero-value and identity both omitted)
+	if tc.CTM != (matrix.Matrix{}) && tc.CTM != matrix.Identity {
+		jtc.CTM = tc.CTM[:]
+	}
+
 	return jtc
 }
 
