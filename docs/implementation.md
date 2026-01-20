@@ -75,9 +75,13 @@ type Rasteriser struct {
     DashPhase  float64                // offset into dash pattern
 
     // Internal buffers (reused across calls)
-    cover  []float32 // coverage accumulation: cover change per pixel
-    area   []float32 // coverage accumulation: area within pixel
-    output []float32 // final coverage values for callback
+    cover  []float32  // coverage accumulation: cover change per pixel
+    area   []float32  // coverage accumulation: area within pixel
+    output []float32  // final coverage values for callback
+    edges  []edge     // edge list for current path (device coordinates)
+    active []int      // indices of active edges (for Approach B)
+    xMin   []int      // per-scanline minimum x with edge contribution
+    xMax   []int      // per-scanline maximum x with edge contribution
     stroke []vec.Vec2 // stroke outline vertices
 }
 ```
@@ -140,17 +144,48 @@ The callback is invoked once per scanline that has non-zero coverage, in increas
 
 ### Numeric Precision
 
-- Coordinates: float64 (via vec.Vec2)
+- Coordinates: float64 (via vec.Vec2 and edge struct)
 - Coverage accumulation: float32
 - Coverage output: float32
 
+### Edge Representation
+
+Edges are stored in device coordinates with precomputed slope:
+
+```go
+type edge struct {
+    x0, y0 float64 // start point (device space)
+    x1, y1 float64 // end point (device space)
+    dxdy   float64 // (x1-x0)/(y1-y0), precomputed for x-intercept calculation
+}
+```
+
+Horizontal edges (|y1 - y0| < threshold) are skipped during edge creation as they contribute nothing to coverage.
+
+### Fill Processing Pipeline
+
+1. **Path traversal**: Walk the path, flattening curves and transforming to device space
+2. **Edge collection**: Build edge list, skipping horizontal edges
+3. **Approach selection**: Choose 2D buffers or active edge list based on bounding box size
+4. **Rasterisation**: Accumulate coverage using the selected approach
+5. **Integration**: Convert accumulated cover/area to final coverage, emit rows
+
+### Hybrid Buffer Strategy
+
+Two approaches are implemented (see specification §4):
+
+- **Approach A (2D buffers)**: For small paths where `width × height < threshold`
+- **Approach B (active edge list)**: For large paths
+
+The threshold is 65536 pixels (256×256). This keeps 2D buffer memory under ~512 KB.
+
 ### Curve Flattening
 
-Curves are flattened directly to the edge processor without intermediate storage:
+Curves are flattened to line segments which are added to the edge list:
 
 1. Receive path segment
 2. If curve, compute segment count (Levien's formula for quadratics, Wang's formula for cubics)
-3. Emit line segments directly to coverage accumulator
+3. Add resulting line segments to edge list
 
 ### Stroke Expansion
 
@@ -163,7 +198,19 @@ Stroke outlines are built in a reusable `[]vec.Vec2` buffer:
 
 ### Clipping
 
-The `Clip` rectangle defines the output region. Internally, the rasteriser intersects `Clip` with the path's bounding box to skip empty scanlines.
+The `Clip` rectangle defines the output region. Edge contributions are clipped during accumulation:
+
+- Y-range of each edge is clamped to clip bounds
+- X-contributions outside clip bounds are skipped
+
+### Per-Scanline Bounds Tracking
+
+To minimize integration work, the rasteriser tracks:
+
+- `yMin`, `yMax`: global y-bounds of all edges (integers)
+- `xMin[y]`, `xMax[y]`: per-scanline x-bounds (integer slices)
+
+Only pixels within these bounds are processed during integration.
 
 ---
 
@@ -229,6 +276,13 @@ const (
     // a full circle, regardless of flatness tolerance. This prevents
     // degenerate approximations at very large tolerances.
     minArcSegments = 4
+
+    // smallPathThreshold is the maximum bounding box area (in pixels) for
+    // using 2D buffers (Approach A). Paths with larger bounding boxes use
+    // the active edge list (Approach B). 65536 = 256×256, keeping 2D buffer
+    // memory under ~512 KB.
+    // TODO: tune this threshold based on profiling
+    smallPathThreshold = 65536
 )
 ```
 
@@ -242,6 +296,7 @@ const (
 | Horizontal edge | 1e-10 | Consistent with zero-length threshold |
 | Default flatness | 0.25 | Below visual perception threshold |
 | Default miter limit | 10.0 | PDF/PostScript standard |
+| Small path threshold | 65536 | 256×256 keeps 2D buffers under ~512 KB |
 
 ---
 
@@ -259,6 +314,10 @@ func (r *Rasteriser) Reset() {
     r.cover = nil
     r.area = nil
     r.output = nil
+    r.edges = nil
+    r.active = nil
+    r.xMin = nil
+    r.xMax = nil
     r.stroke = nil
 }
 ```

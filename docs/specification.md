@@ -178,25 +178,61 @@ Edge direction matters for correct winding:
 
 ## 4. Buffer Management
 
-### 4.1 Layout
+Two approaches exist for managing the coverage accumulation buffers. Implementations may use either or both, selected by heuristic.
 
-Maintain two separate dense arrays, one row tall:
-- `cover[x]` — float64, indexed by pixel x-coordinate
-- `area[x]` — float64, indexed by pixel x-coordinate
+### 4.1 Approach A: 2D Buffers (Small Paths)
 
-Both arrays span at least the horizontal extent of the path's bounding box.
+For small paths (e.g., glyphs, icons), use 2D buffers sized to the path's bounding box:
 
-### 4.2 Initialisation
+- `cover[y][x]` — float32, indexed by pixel coordinates
+- `area[y][x]` — float32, indexed by pixel coordinates
 
-Before processing each path:
-1. Compute the path's bounding box in device coordinates
-2. Clamp to the device/clip bounds
-3. Zero the `cover` and `area` arrays for the relevant x-range
+**Processing:**
+1. Compute the path's bounding box in device coordinates, clamp to clip bounds
+2. Allocate (or reuse) 2D buffers for the bounding box
+3. Process edges in path order — each edge writes to all scanlines it touches
+4. After all edges are processed, integrate and emit each row
 
-Before processing each scanline:
-- Zero the portion of `cover` and `area` that will be touched (or re-zero the entire bounding box width)
+**Memory:** O(width × height). For a 256×256 region: ~512 KB (2 buffers × 64K pixels × 4 bytes).
 
-### 4.3 Output
+**Trade-off:** Simple implementation, no sorting required. Suitable when `width × height` is small (e.g., < 256K pixels).
+
+### 4.2 Approach B: 1D Buffers + Active Edge List (Large Paths)
+
+For large paths (e.g., page-spanning fills), use 1D buffers with scanline-by-scanline processing:
+
+- `cover[x]` — float32, one row tall
+- `area[x]` — float32, one row tall
+
+**Processing:**
+1. Compute the path's bounding box in device coordinates, clamp to clip bounds
+2. Build an edge list from the path, storing (x0, y0, x1, y1) for each edge
+3. Sort edges by y_min (the smaller y-coordinate of each edge)
+4. Process scanlines from y_min to y_max:
+   - Add edges that start at this scanline to the active edge list
+   - For each active edge, compute its contribution to this scanline's `cover` and `area`
+   - Remove edges that end at this scanline from the active edge list
+   - Integrate and emit the row
+   - Clear the touched portion of `cover` and `area`
+
+**Memory:** O(width + edges). Independent of path height.
+
+**Trade-off:** More complex implementation, requires sorting. Suitable for large regions with relatively few edges.
+
+### 4.3 Selection Heuristic
+
+A practical heuristic for choosing between approaches:
+
+```
+if (bbox_width × bbox_height < threshold)   // e.g., 262144 (512×512)
+    use Approach A (2D buffers)
+else
+    use Approach B (active edge list)
+```
+
+Glyphs and small shapes get the simpler 2D approach. Large page-spanning fills get the memory-efficient active edge list.
+
+### 4.4 Output
 
 After integrating each scanline:
 - Pass the row's coverage data to the compositor

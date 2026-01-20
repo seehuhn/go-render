@@ -130,12 +130,12 @@ func loadGray(path string) ([]byte, error) {
 }
 
 func compareImages(name string, expected, actual []byte, w, h int) error {
-	const tolerance = 2
+	const tolerance = 72
 	const maxDiffPercent = 10
 
 	total := w * h
-	diffCount := 0
-	hasDiff := false
+	diffCount := 0      // pixels with any difference
+	outOfTolerance := 0 // pixels differing by more than tolerance
 
 	for i := range total {
 		e, a := int(expected[i]), int(actual[i])
@@ -144,20 +144,36 @@ func compareImages(name string, expected, actual []byte, w, h int) error {
 			diff = -diff
 		}
 		if diff > 0 {
-			hasDiff = true
+			diffCount++
 			if diff > tolerance {
-				diffCount++
+				outOfTolerance++
 			}
 		}
 	}
 
 	maxAllowed := total * maxDiffPercent / 100
-	if diffCount > maxAllowed || hasDiff {
+	if diffCount > 0 {
 		writeDiffImage(name, expected, actual, w, h)
 	}
+	if outOfTolerance > 0 {
+		// Find max difference for debugging
+		maxDiff := 0
+		for i := range total {
+			e, a := int(expected[i]), int(actual[i])
+			diff := e - a
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > maxDiff {
+				maxDiff = diff
+			}
+		}
+		return fmt.Errorf("%d pixels differ by >%d (max diff: %d)",
+			outOfTolerance, tolerance, maxDiff)
+	}
 	if diffCount > maxAllowed {
-		return fmt.Errorf("%d pixels differ by >%d (max allowed: %d)",
-			diffCount, tolerance, maxAllowed)
+		return fmt.Errorf("%d pixels differ (max allowed: %d, i.e. %d%%)",
+			diffCount, maxAllowed, maxDiffPercent)
 	}
 	return nil
 }
@@ -169,12 +185,19 @@ func writeDiffImage(name string, expected, actual []byte, w, h int) {
 	for y := range h {
 		for x := range w {
 			i := y*w + x
-			img.Set(x, y, color.RGBA{
-				R: expected[i], // expected in red
-				G: actual[i],   // actual in green
-				B: 0,
-				A: 255,
-			})
+			diff := int(expected[i]) - int(actual[i])
+			var c color.RGBA
+			if diff > 0 {
+				// Under-producing (expected > actual): green
+				c = color.RGBA{R: 0, G: uint8(diff), B: 0, A: 255}
+			} else if diff < 0 {
+				// Over-producing (expected < actual): red
+				c = color.RGBA{R: uint8(-diff), G: 0, B: 0, A: 255}
+			} else {
+				// No difference: black
+				c = color.RGBA{R: 0, G: 0, B: 0, A: 255}
+			}
+			img.Set(x, y, c)
 		}
 	}
 

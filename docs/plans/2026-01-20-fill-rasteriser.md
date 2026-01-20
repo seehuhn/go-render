@@ -1,45 +1,25 @@
-// seehuhn.de/go/render - a 2D rendering library
-// Copyright (C) 2026  Jochen Voss <voss@seehuhn.de>
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# Fill Rasteriser Implementation Plan
 
-package render
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-import (
-	"math"
-	"slices"
+**Goal:** Implement FillNonZero and FillEvenOdd methods using signed-area coverage accumulation with hybrid 2D/active-edge-list buffer management.
 
-	"seehuhn.de/go/geom/matrix"
-	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/rect"
-	"seehuhn.de/go/geom/vec"
-	"seehuhn.de/go/pdf/graphics"
-)
+**Architecture:** Path is traversed to build an edge list (with dummy curve flattening for now). Based on bounding box size, either 2D buffers (small paths) or active edge list (large paths) is used. Edges contribute cover/area values which are integrated row-by-row to produce final coverage.
 
-// Default values for rasteriser parameters.
-const (
-	// DefaultFlatness is the default curve flattening tolerance in device
-	// pixels. Values of 0.25-1.0 are typical; 0.25 is below the threshold
-	// of visual perception.
-	DefaultFlatness = 0.25
+**Tech Stack:** Go, seehuhn.de/go/geom (path, vec, matrix, rect), seehuhn.de/go/pdf/graphics
 
-	// DefaultMiterLimit is the default miter limit, matching PDF/PostScript.
-	// This converts joins to bevels when the interior angle is less than
-	// approximately 11.5 degrees.
-	DefaultMiterLimit = 10.0
-)
+---
 
+## Task 1: Add Constants and Edge Type
+
+**Files:**
+- Modify: `rasteriser.go`
+
+**Step 1: Add the constants block after existing constants**
+
+Add after line 38 (after `DefaultMiterLimit`):
+
+```go
 // Numerical tolerances for the rasteriser.
 const (
 	// horizontalEdgeThreshold is the minimum vertical extent for an edge
@@ -60,45 +40,32 @@ type edge struct {
 	x1, y1 float64 // end point
 	dxdy   float64 // (x1-x0)/(y1-y0), precomputed for x-intercept calculation
 }
+```
 
-// Rasteriser converts vector paths to pixel coverage values.
-// The caller creates one instance and reuses it for multiple paths.
-// Internal buffers grow as needed but never shrink, achieving zero
-// allocations in steady state.
-type Rasteriser struct {
-	// CTM is the current transformation matrix (user space to device space).
-	// Must be a non-singular matrix.
-	CTM matrix.Matrix
+**Step 2: Verify the code compiles**
 
-	// Clip defines the output region in device coordinates.
-	// Must be a non-empty rectangle with integer-aligned coordinates.
-	Clip rect.Rect
+Run: `go build ./...`
+Expected: No errors
 
-	// Flatness is the curve flattening tolerance in device pixels.
-	// Must be > 0. Typical values are 0.25-1.0.
-	Flatness float64
+**Step 3: Commit**
 
-	// Width is the stroke line width in user-space units.
-	// Must be > 0 for stroke operations.
-	Width float64
+```bash
+git add rasteriser.go
+git commit -m "add edge type and numerical constants for rasteriser"
+```
 
-	// Cap is the line cap style for stroke endpoints.
-	Cap graphics.LineCapStyle
+---
 
-	// Join is the line join style for stroke corners.
-	Join graphics.LineJoinStyle
+## Task 2: Add Internal Buffers to Rasteriser
 
-	// MiterLimit is the miter limit for miter joins.
-	// Must be >= 1.0.
-	MiterLimit float64
+**Files:**
+- Modify: `rasteriser.go`
 
-	// Dash is the dash pattern in user-space units.
-	// Nil means solid line (no dashing).
-	Dash []float64
+**Step 1: Update the internal buffers section**
 
-	// DashPhase is the offset into the dash pattern.
-	DashPhase float64
+Replace lines 78-82 (the internal buffers comment and fields) with:
 
+```go
 	// Internal buffers (reused across calls)
 	cover  []float32  // coverage accumulation: cover change per pixel
 	area   []float32  // coverage accumulation: area within pixel
@@ -108,65 +75,63 @@ type Rasteriser struct {
 	xMin   []int      // per-scanline minimum x with edge contribution
 	xMax   []int      // per-scanline maximum x with edge contribution
 	stroke []vec.Vec2 // stroke outline vertices
+```
+
+**Step 2: Update the Reset method**
+
+Replace the Reset method body (lines 128-133) with:
+
+```go
+func (r *Rasteriser) Reset() {
+	r.cover = nil
+	r.area = nil
+	r.output = nil
+	r.edges = nil
+	r.active = nil
+	r.xMin = nil
+	r.xMax = nil
+	r.stroke = nil
 }
+```
 
-// NewRasteriser creates a new Rasteriser with the given clip rectangle
-// and PDF default values for all other parameters.
-func NewRasteriser(clip rect.Rect) *Rasteriser {
-	return &Rasteriser{
-		CTM:        matrix.Identity,
-		Clip:       clip,
-		Flatness:   DefaultFlatness,
-		Width:      1.0,
-		Cap:        graphics.LineCapButt,
-		Join:       graphics.LineJoinMiter,
-		MiterLimit: DefaultMiterLimit,
-	}
-}
+**Step 3: Verify the code compiles**
 
-// FillNonZero rasterises the path using the nonzero winding rule.
-// Coverage is delivered row-by-row via the emit callback.
-// The coverage slice passed to emit is only valid for the duration
-// of the callback.
-func (r *Rasteriser) FillNonZero(p path.Path, emit func(y, xMin int, coverage []float32)) {
-	r.fill(p, fillNonZero, emit)
-}
+Run: `go build ./...`
+Expected: No errors
 
-// FillEvenOdd rasterises the path using the even-odd fill rule.
-// Coverage is delivered row-by-row via the emit callback.
-// The coverage slice passed to emit is only valid for the duration
-// of the callback.
-func (r *Rasteriser) FillEvenOdd(p path.Path, emit func(y, xMin int, coverage []float32)) {
-	r.fill(p, fillEvenOdd, emit)
-}
+**Step 4: Commit**
 
-// fillRule identifies which fill rule to apply.
-type fillRule int
+```bash
+git add rasteriser.go
+git commit -m "add edge list and bounds tracking buffers to Rasteriser"
+```
 
-const (
-	fillNonZero fillRule = iota
-	fillEvenOdd
+---
+
+## Task 3: Implement Path Traversal and Edge Collection
+
+**Files:**
+- Modify: `rasteriser.go`
+
+**Step 1: Add "math" to the import block**
+
+```go
+import (
+	"math"
+
+	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/path"
+	"seehuhn.de/go/geom/rect"
+	"seehuhn.de/go/geom/vec"
+	"seehuhn.de/go/pdf/graphics"
 )
+```
 
-// fill is the internal implementation shared by FillNonZero and FillEvenOdd.
-func (r *Rasteriser) fill(p path.Path, rule fillRule, emit func(y, xMin int, coverage []float32)) {
-	// Collect edges from path (returns bounding box clamped to clip)
-	xMin, xMax, yMin, yMax, ok := r.collectEdges(p)
-	if !ok {
-		return // empty or degenerate path
-	}
+**Step 2: Add the collectEdges method**
 
-	// Choose approach based on bounding box size
-	width := xMax - xMin
-	height := yMax - yMin
+Add after the Reset method:
 
-	if width*height < smallPathThreshold {
-		r.fill2D(xMin, xMax, yMin, yMax, rule, emit)
-	} else {
-		r.fillScanline(xMin, xMax, yMin, yMax, rule, emit)
-	}
-}
-
+```go
 // collectEdges walks the path, transforms to device space, and builds the edge list.
 // Curves are approximated with a single line segment (TODO: implement proper flattening).
 // Returns the bounding box of all edges in device coordinates (clamped to clip).
@@ -272,7 +237,32 @@ func (r *Rasteriser) collectEdges(p path.Path) (xMin, xMax, yMin, yMax int, ok b
 
 	return xMin, xMax, yMin, yMax, true
 }
+```
 
+**Step 2: Verify the code compiles**
+
+Run: `go build ./...`
+Expected: No errors
+
+**Step 3: Commit**
+
+```bash
+git add rasteriser.go
+git commit -m "implement path traversal and edge collection with dummy curve flattening"
+```
+
+---
+
+## Task 4: Implement Edge Contribution Calculation
+
+**Files:**
+- Modify: `rasteriser.go`
+
+**Step 1: Add the accumulateEdge method**
+
+Add after collectEdges:
+
+```go
 // accumulateEdge adds a single edge's contribution to the cover and area buffers.
 // The buffers are indexed by (x - bboxXMin), where bboxXMin/bboxXMax define the buffer range.
 // The edge's y range should already be clamped to the current scanline.
@@ -310,9 +300,8 @@ func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 	// Determine which pixel column this falls into (use floor for correct negative handling)
 	x := int(math.Floor(xMid))
 	if x < bboxXMin {
-		// Edge is to the left of bounding box - all pixels are fully inside
-		// Add to area[0] for pixel 0's coverage, and cover[0] to propagate to pixels 1+
-		area[0] += coverVal
+		// Edge is to the left of bounding box
+		// Still contributes to cover for all pixels to the right
 		cover[0] += coverVal
 		return
 	}
@@ -329,6 +318,39 @@ func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 	cover[idx] += coverVal
 	area[idx] += areaVal
 }
+```
+
+**Step 2: Verify the code compiles**
+
+Run: `go build ./...`
+Expected: No errors
+
+**Step 3: Commit**
+
+```bash
+git add rasteriser.go
+git commit -m "implement edge contribution calculation for coverage accumulation"
+```
+
+---
+
+## Task 5: Implement Integration and Fill Rules
+
+**Files:**
+- Modify: `rasteriser.go`
+
+**Step 1: Add fill rule type and integration method**
+
+Add after accumulateEdge:
+
+```go
+// fillRule identifies which fill rule to apply.
+type fillRule int
+
+const (
+	fillNonZero fillRule = iota
+	fillEvenOdd
+)
 
 // integrateScanline converts accumulated cover/area to final coverage values.
 // xMin and xMax are the pixel range that was touched.
@@ -342,8 +364,8 @@ func (r *Rasteriser) integrateScanline(cover, area []float32, xMin, xMax int, ru
 
 	var accum float32
 	for i := 0; i < width; i++ {
-		raw := accum + area[i]
 		accum += cover[i]
+		raw := accum + area[i]
 
 		var cov float32
 		switch rule {
@@ -379,7 +401,32 @@ func abs32(x float32) float32 {
 	}
 	return x
 }
+```
 
+**Step 2: Verify the code compiles**
+
+Run: `go build ./...`
+Expected: No errors
+
+**Step 3: Commit**
+
+```bash
+git add rasteriser.go
+git commit -m "implement scanline integration with nonzero and even-odd fill rules"
+```
+
+---
+
+## Task 6: Implement Approach A (2D Buffers)
+
+**Files:**
+- Modify: `rasteriser.go`
+
+**Step 1: Add the fill2D method**
+
+Add after integrateScanline:
+
+```go
 // fill2D rasterises using 2D buffers (Approach A).
 // Used for small paths where width*height < smallPathThreshold.
 // xMin, xMax, yMin, yMax define the path's bounding box (already clamped to clip).
@@ -484,7 +531,49 @@ func (r *Rasteriser) fill2D(xMin, xMax, yMin, yMax int, rule fillRule, emit func
 		}
 	}
 }
+```
 
+**Step 2: Verify the code compiles**
+
+Run: `go build ./...`
+Expected: No errors
+
+**Step 3: Commit**
+
+```bash
+git add rasteriser.go
+git commit -m "implement 2D buffer approach for small path rasterisation"
+```
+
+---
+
+## Task 7: Implement Approach B (Active Edge List)
+
+**Files:**
+- Modify: `rasteriser.go`
+
+**Step 1: Add "slices" to the import block**
+
+Update the import block (math was added in Task 3):
+
+```go
+import (
+	"math"
+	"slices"
+
+	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/path"
+	"seehuhn.de/go/geom/rect"
+	"seehuhn.de/go/geom/vec"
+	"seehuhn.de/go/pdf/graphics"
+)
+```
+
+**Step 2: Add the fillScanline method**
+
+Add after fill2D:
+
+```go
 // fillScanline rasterises using 1D buffers and an active edge list (Approach B).
 // Used for large paths where width*height >= smallPathThreshold.
 // xMin, xMax, yMin, yMax define the path's bounding box (already clamped to clip).
@@ -605,27 +694,123 @@ func (r *Rasteriser) fillScanline(xMin, xMax, yMin, yMax int, rule fillRule, emi
 		}
 	}
 }
+```
 
-// Stroke rasterises the path as a stroked outline.
-// Uses Width, Cap, Join, MiterLimit, Dash, and DashPhase from the Rasteriser.
-// The stroke outline is filled using the nonzero winding rule.
-// Coverage is delivered row-by-row via the emit callback.
-// The coverage slice passed to emit is only valid for the duration
-// of the callback.
-func (r *Rasteriser) Stroke(p path.Path, emit func(y, xMin int, coverage []float32)) {
-	// TODO: implement
-}
+**Step 3: Verify the code compiles**
 
-// Reset releases all internal buffers, allowing memory to be reclaimed.
-// The Rasteriser remains usable after Reset; buffers will be reallocated
-// as needed on the next operation.
-func (r *Rasteriser) Reset() {
-	r.cover = nil
-	r.area = nil
-	r.output = nil
-	r.edges = nil
-	r.active = nil
-	r.xMin = nil
-	r.xMax = nil
-	r.stroke = nil
+Run: `go build ./...`
+Expected: No errors
+
+**Step 4: Commit**
+
+```bash
+git add rasteriser.go
+git commit -m "implement active edge list approach for large path rasterisation"
+```
+
+---
+
+## Task 8: Implement FillNonZero and FillEvenOdd
+
+**Files:**
+- Modify: `rasteriser.go`
+
+**Step 1: Replace FillNonZero stub**
+
+Replace the FillNonZero method with:
+
+```go
+func (r *Rasteriser) FillNonZero(p path.Path, emit func(y, xMin int, coverage []float32)) {
+	r.fill(p, fillNonZero, emit)
 }
+```
+
+**Step 2: Replace FillEvenOdd stub**
+
+Replace the FillEvenOdd method with:
+
+```go
+func (r *Rasteriser) FillEvenOdd(p path.Path, emit func(y, xMin int, coverage []float32)) {
+	r.fill(p, fillEvenOdd, emit)
+}
+```
+
+**Step 3: Add the internal fill method**
+
+Add after the public methods:
+
+```go
+// fill is the internal implementation shared by FillNonZero and FillEvenOdd.
+func (r *Rasteriser) fill(p path.Path, rule fillRule, emit func(y, xMin int, coverage []float32)) {
+	// Collect edges from path (returns bounding box clamped to clip)
+	xMin, xMax, yMin, yMax, ok := r.collectEdges(p)
+	if !ok {
+		return // empty or degenerate path
+	}
+
+	// Choose approach based on bounding box size
+	width := xMax - xMin
+	height := yMax - yMin
+
+	if width*height < smallPathThreshold {
+		r.fill2D(xMin, xMax, yMin, yMax, rule, emit)
+	} else {
+		r.fillScanline(xMin, xMax, yMin, yMax, rule, emit)
+	}
+}
+```
+
+**Step 4: Verify the code compiles**
+
+Run: `go build ./...`
+Expected: No errors
+
+**Step 5: Run the tests**
+
+Run: `go test -v -run TestAgainstReference`
+Expected: Tests run (many will fail due to dummy curve flattening, but polygonal tests should pass)
+
+**Step 6: Commit**
+
+```bash
+git add rasteriser.go
+git commit -m "implement FillNonZero and FillEvenOdd with hybrid buffer approach"
+```
+
+---
+
+## Task 9: Run Tests and Debug
+
+**Files:**
+- None (testing only)
+
+**Step 1: Run all tests**
+
+Run: `go test -v`
+
+Note which tests pass and which fail. Polygonal fill tests (triangle, rectangle, star, etc.) should pass. Tests with curves will fail due to dummy flattening.
+
+**Step 2: If tests fail unexpectedly, debug**
+
+Check the debug/ directory for diff images if any tests fail that should pass.
+
+**Step 3: Document results**
+
+Note any issues discovered for follow-up.
+
+---
+
+## Summary
+
+After completing all tasks, you will have:
+
+1. **Edge type and constants** for numerical tolerances
+2. **Path traversal** that builds an edge list with CTM transformation
+3. **Dummy curve flattening** (TODO markers for proper implementation)
+4. **Edge contribution calculation** implementing the signed-area algorithm
+5. **Integration with fill rules** (nonzero winding and even-odd)
+6. **Approach A (2D buffers)** for small paths
+7. **Approach B (active edge list)** for large paths
+8. **Working FillNonZero and FillEvenOdd** methods
+
+Tests with polygonal paths should pass. Tests with curves will need proper flattening implementation (separate task).
