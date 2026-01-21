@@ -1,4 +1,4 @@
-// seehuhn.de/go/render - a 2D rendering library
+// seehuhn.de/go/raster - a 2D rendering library
 // Copyright (C) 2026  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify

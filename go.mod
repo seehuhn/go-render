@@ -1,4 +1,4 @@
-module seehuhn.de/go/render
+module seehuhn.de/go/raster
 
 go 1.24
 

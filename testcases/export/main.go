@@ -1,4 +1,4 @@
-// seehuhn.de/go/render - a 2D rendering library
+// seehuhn.de/go/raster - a 2D rendering library
 // Copyright (C) 2026  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -26,7 +26,7 @@ import (
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/render/testcases"
+	"seehuhn.de/go/raster/testcases"
 )
 
 func main() {

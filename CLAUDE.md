@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-go-render is a 2D vector graphics rasterizer implementing the PDF/PostScript imaging model. It uses the **signed-area coverage accumulation** algorithm to convert vector paths to per-pixel coverage values.
+go-raster is a 2D vector graphics rasterizer implementing the PDF/PostScript imaging model. It uses the **signed-area coverage accumulation** algorithm to convert vector paths to per-pixel coverage values.
 
 ## Build and Test Commands
 
@@ -40,7 +40,7 @@ The rasterizer computes signed trapezoidal area contributions per pixel:
 
 ### Key Dependencies
 
-- `seehuhn.de/go/geom` - Provides `path.Path` (iterator interface), `vec.Vec2`, `matrix.Matrix`
+- `seehuhn.de/go/geom` - Provides `path.Data` (path representation), `vec.Vec2`, `matrix.Matrix`
 - `seehuhn.de/go/pdf` - Provides `graphics.LineCapStyle`, `graphics.LineJoinStyle` enums
 
 ### Entry Point
