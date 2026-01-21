@@ -388,57 +388,149 @@ func (r *Rasteriser) collectEdges(p path.Path) (xMin, xMax, yMin, yMax int, ok b
 
 // accumulateEdge adds a single edge's contribution to the cover and area buffers.
 // The buffers are indexed by (x - bboxXMin), where bboxXMin/bboxXMax define the buffer range.
-// The edge's y range should already be clamped to the current scanline.
+// For edges spanning multiple pixels horizontally, this function splits the edge at pixel
+// boundaries and computes separate contributions for each pixel crossed.
 func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxXMin, bboxXMax int) {
 	// Compute the portion of the edge within this scanline [y, y+1)
 	yTop := float64(y)
 	yBot := float64(y + 1)
 
 	// Clamp to edge's actual y extent
-	if e.y0 < e.y1 {
-		yTop = max(yTop, e.y0)
-		yBot = min(yBot, e.y1)
-	} else {
-		yTop = max(yTop, e.y1)
-		yBot = min(yBot, e.y0)
-	}
+	edgeYMin := min(e.y0, e.y1)
+	edgeYMax := max(e.y0, e.y1)
+	yTop = max(yTop, edgeYMin)
+	yBot = min(yBot, edgeYMax)
 
-	dy := yBot - yTop
-	if dy <= 0 {
+	if yBot <= yTop {
 		return
 	}
 
-	// Cover contribution: signed vertical extent
-	var coverVal float32
-	if e.y1 > e.y0 {
-		coverVal = float32(dy) // downward edge: positive
-	} else {
-		coverVal = float32(-dy) // upward edge: negative
+	// Sign based on edge direction: +1 for downward (y1 > y0), -1 for upward
+	sign := float32(1)
+	if e.y1 < e.y0 {
+		sign = -1
 	}
 
-	// Compute x at the midpoint of the edge segment within this scanline
+	// Compute x at the y boundaries of the edge segment within this scanline
+	xAtYTop := e.x0 + e.dxdy*(yTop-e.y0)
+	xAtYBot := e.x0 + e.dxdy*(yBot-e.y0)
+
+	// Determine pixel range the edge spans (ensure left <= right for iteration)
+	xLeft, xRight := xAtYTop, xAtYBot
+	if xLeft > xRight {
+		xLeft, xRight = xRight, xLeft
+	}
+
+	pixLeft := int(math.Floor(xLeft))
+	pixRight := int(math.Floor(xRight))
+
+	// Handle edge entirely to the left of bbox
+	if pixRight < bboxXMin {
+		coverVal := sign * float32(yBot-yTop)
+		cover[0] += coverVal
+		area[0] += coverVal
+		return
+	}
+
+	// Handle edge entirely to the right of bbox
+	if pixLeft >= bboxXMax {
+		return
+	}
+
+	// For vertical edges or edges within a single pixel column
+	if pixLeft == pixRight {
+		r.accumulateSinglePixel(e, yTop, yBot, sign, pixLeft, cover, area, bboxXMin, bboxXMax)
+		return
+	}
+
+	// Edge spans multiple pixels - split at each pixel boundary
+	// Collect all y values where the edge crosses integer x boundaries
+	// Then process each segment between consecutive crossings
+	dydx := 1 / e.dxdy
+
+	// Build list of (y, x) crossing points, sorted by y
+	type crossing struct {
+		y float64
+		x float64
+	}
+	crossings := make([]crossing, 0, pixRight-pixLeft+2)
+
+	// Add start and end points
+	crossings = append(crossings, crossing{yTop, xAtYTop})
+	crossings = append(crossings, crossing{yBot, xAtYBot})
+
+	// Add crossings at integer x boundaries
+	for x := pixLeft + 1; x <= pixRight; x++ {
+		yAtX := e.y0 + dydx*(float64(x)-e.x0)
+		if yAtX > yTop && yAtX < yBot {
+			crossings = append(crossings, crossing{yAtX, float64(x)})
+		}
+	}
+
+	// Sort crossings by y
+	slices.SortFunc(crossings, func(a, b crossing) int {
+		if a.y < b.y {
+			return -1
+		}
+		if a.y > b.y {
+			return 1
+		}
+		return 0
+	})
+
+	// Process each segment between consecutive crossings
+	for i := 0; i < len(crossings)-1; i++ {
+		y0 := crossings[i].y
+		y1 := crossings[i+1].y
+		segDy := y1 - y0
+		if segDy <= 0 {
+			continue
+		}
+
+		// Compute contribution for this segment
+		coverVal := sign * float32(segDy)
+
+		// Find which pixel this segment is in (use midpoint x)
+		yMid := (y0 + y1) / 2
+		xMid := e.x0 + e.dxdy*(yMid-e.y0)
+		pix := int(math.Floor(xMid))
+
+		xFrac := xMid - float64(pix)
+		areaVal := coverVal * float32(1-xFrac)
+
+		// Add to buffers
+		if pix < bboxXMin {
+			cover[0] += coverVal
+			area[0] += coverVal
+		} else if pix < bboxXMax {
+			idx := pix - bboxXMin
+			cover[idx] += coverVal
+			area[idx] += areaVal
+		}
+		// pix >= bboxXMax: no contribution
+	}
+}
+
+// accumulateSinglePixel handles an edge segment that falls within a single pixel column.
+func (r *Rasteriser) accumulateSinglePixel(e *edge, yTop, yBot float64, sign float32, pix int, cover, area []float32, bboxXMin, bboxXMax int) {
+	coverVal := sign * float32(yBot-yTop)
+
+	if pix < bboxXMin {
+		cover[0] += coverVal
+		area[0] += coverVal
+		return
+	}
+	if pix >= bboxXMax {
+		return
+	}
+
+	// Compute average x within this pixel
 	yMid := (yTop + yBot) / 2
 	xMid := e.x0 + e.dxdy*(yMid-e.y0)
+	xFrac := xMid - float64(pix)
+	areaVal := coverVal * float32(1-xFrac)
 
-	// Determine which pixel column this falls into (use floor for correct negative handling)
-	x := int(math.Floor(xMid))
-	if x < bboxXMin {
-		// Edge is to the left of bounding box - all pixels are fully inside
-		// Add to area[0] for pixel 0's coverage, and cover[0] to propagate to pixels 1+
-		area[0] += coverVal
-		cover[0] += coverVal
-		return
-	}
-	if x >= bboxXMax {
-		// Edge is to the right of bounding box - no contribution
-		return
-	}
-
-	// Area contribution: accounts for horizontal position within pixel
-	xFrac := xMid - float64(x) // fractional x position within pixel [0, 1)
-	areaVal := coverVal * float32(1.0-xFrac)
-
-	idx := x - bboxXMin
+	idx := pix - bboxXMin
 	cover[idx] += coverVal
 	area[idx] += areaVal
 }
@@ -454,7 +546,7 @@ func (r *Rasteriser) integrateScanline(cover, area []float32, xMin, xMax int, ru
 	}
 
 	var accum float32
-	for i := 0; i < width; i++ {
+	for i := range width {
 		raw := accum + area[i]
 		accum += cover[i]
 
@@ -571,7 +663,7 @@ func (r *Rasteriser) fill2D(xMin, xMax, yMin, yMax int, rule fillRule, emit func
 	}
 
 	// Integrate and emit each row
-	for row := 0; row < height; row++ {
+	for row := range height {
 		if r.xMax[row] < 0 {
 			continue // no edges touched this row
 		}
@@ -868,7 +960,7 @@ func (r *Rasteriser) strokeSubpath(segs []strokeSegment, closed bool) {
 		// Forward pass: +N side (right side of path direction)
 		// Start with the closing corner's +N point from segment 0's perspective
 		r.stroke = append(r.stroke, first.A.Add(first.N.Mul(d)))
-		for i := 0; i < len(segs); i++ {
+		for i := range len(segs) {
 			seg := &segs[i]
 			r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
 			// Add join to next segment if outer side is +N
@@ -912,7 +1004,7 @@ func (r *Rasteriser) strokeSubpath(segs []strokeSegment, closed bool) {
 		r.addCap(first.A, first.T.Mul(-1), d)
 
 		// Forward pass: +N side (right side of path direction)
-		for i := 0; i < len(segs); i++ {
+		for i := range len(segs) {
 			seg := &segs[i]
 			r.stroke = append(r.stroke, seg.A.Add(seg.N.Mul(d)))
 			r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))

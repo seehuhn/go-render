@@ -22,13 +22,16 @@ import (
 	"image/color"
 	"image/png"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
 	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/rect"
+	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/render/testcases"
 )
 
@@ -228,4 +231,49 @@ func writeDiffImage(name string, expected, actual []byte, w, h int) {
 	}
 	defer f.Close()
 	png.Encode(f, img)
+}
+
+// TestTriangleCoverage verifies exact coverage values for a simple triangle.
+// The triangle (0,0)→(10,0)→(10,1)→close has a diagonal edge y = x/10.
+// Each pixel X should have coverage (2X+1)/20: 0.05, 0.15, ..., 0.95.
+func TestTriangleCoverage(t *testing.T) {
+	// Build the triangle path in device space
+	trianglePath := func(yield func(path.Command, []vec.Vec2) bool) {
+		if !yield(path.CmdMoveTo, []vec.Vec2{{X: 0, Y: 0}}) {
+			return
+		}
+		if !yield(path.CmdLineTo, []vec.Vec2{{X: 10, Y: 0}}) {
+			return
+		}
+		if !yield(path.CmdLineTo, []vec.Vec2{{X: 10, Y: 1}}) {
+			return
+		}
+		yield(path.CmdClose, nil)
+	}
+
+	// Create rasteriser with clip covering the triangle
+	clip := rect.Rect{LLx: 0, LLy: 0, URx: 10, URy: 1}
+	r := NewRasteriser(clip)
+
+	// Collect coverage values
+	coverage := make([]float32, 10)
+	emit := func(y, xMin int, cov []float32) {
+		if y == 0 {
+			for i, c := range cov {
+				coverage[xMin+i] = c
+			}
+		}
+	}
+
+	r.FillNonZero(trianglePath, emit)
+
+	// Verify each pixel's coverage
+	const epsilon = 1e-6
+	for x := range 10 {
+		expected := float32(2*x+1) / 20.0 // 0.05, 0.15, ..., 0.95
+		actual := coverage[x]
+		if math.Abs(float64(actual-expected)) > epsilon {
+			t.Errorf("pixel %d: expected coverage %.4f, got %.4f", x, expected, actual)
+		}
+	}
 }
