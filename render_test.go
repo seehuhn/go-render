@@ -153,6 +153,7 @@ func compareImages(name string, expected, actual []byte, w, h int) error {
 	total := w * h
 	diffCount := 0      // pixels with any difference
 	outOfTolerance := 0 // pixels differing by more than tolerance
+	maxDiff := 0
 
 	for i := range total {
 		e, a := int(expected[i]), int(actual[i])
@@ -165,30 +166,22 @@ func compareImages(name string, expected, actual []byte, w, h int) error {
 			if diff > tolerance {
 				outOfTolerance++
 			}
-		}
-	}
-
-	maxAllowed := total * maxDiffPercent / 100
-	if diffCount > 0 {
-		writeDiffImage(name, expected, actual, w, h)
-	}
-	if outOfTolerance > 0 {
-		// Find max difference for debugging
-		maxDiff := 0
-		for i := range total {
-			e, a := int(expected[i]), int(actual[i])
-			diff := e - a
-			if diff < 0 {
-				diff = -diff
-			}
 			if diff > maxDiff {
 				maxDiff = diff
 			}
 		}
+	}
+
+	maxAllowed := total * maxDiffPercent / 100
+
+	// Only write debug image if test actually fails
+	if outOfTolerance > 0 {
+		writeDiffImage(name, expected, actual, w, h)
 		return fmt.Errorf("%d pixels differ by >%d (max diff: %d)",
 			outOfTolerance, tolerance, maxDiff)
 	}
 	if diffCount > maxAllowed {
+		writeDiffImage(name, expected, actual, w, h)
 		return fmt.Errorf("%d pixels differ (max allowed: %d, i.e. %d%%)",
 			diffCount, maxAllowed, maxDiffPercent)
 	}
@@ -198,23 +191,34 @@ func compareImages(name string, expected, actual []byte, w, h int) error {
 func writeDiffImage(name string, expected, actual []byte, w, h int) {
 	os.MkdirAll("debug", 0755)
 
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	// Create 3-panel image: actual (left), diff (middle), reference (right)
+	img := image.NewRGBA(image.Rect(0, 0, w*3, h))
 	for y := range h {
 		for x := range w {
 			i := y*w + x
+
+			// Left panel: actual output (grayscale)
+			a := actual[i]
+			img.Set(x, y, color.RGBA{R: a, G: a, B: a, A: 255})
+
+			// Middle panel: diff (green=under, red=over, black=match)
 			diff := int(expected[i]) - int(actual[i])
-			var c color.RGBA
+			var diffColor color.RGBA
 			if diff > 0 {
 				// Under-producing (expected > actual): green
-				c = color.RGBA{R: 0, G: uint8(diff), B: 0, A: 255}
+				diffColor = color.RGBA{R: 0, G: uint8(diff), B: 0, A: 255}
 			} else if diff < 0 {
 				// Over-producing (expected < actual): red
-				c = color.RGBA{R: uint8(-diff), G: 0, B: 0, A: 255}
+				diffColor = color.RGBA{R: uint8(-diff), G: 0, B: 0, A: 255}
 			} else {
 				// No difference: black
-				c = color.RGBA{R: 0, G: 0, B: 0, A: 255}
+				diffColor = color.RGBA{R: 0, G: 0, B: 0, A: 255}
 			}
-			img.Set(x, y, c)
+			img.Set(x+w, y, diffColor)
+
+			// Right panel: reference/expected (grayscale)
+			e := expected[i]
+			img.Set(x+w*2, y, color.RGBA{R: e, G: e, B: e, A: 255})
 		}
 	}
 
