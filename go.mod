@@ -4,7 +4,7 @@ go 1.24
 
 require (
 	golang.org/x/image v0.28.0
-	seehuhn.de/go/geom v0.6.1-0.20251021221355-fbd653e938b7
+	seehuhn.de/go/geom v0.6.1-0.20260121150203-a0791f4789fa
 	seehuhn.de/go/pdf v0.6.1-0.20260120165640-8044465e8b10
 )
 
