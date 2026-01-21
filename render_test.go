@@ -277,3 +277,57 @@ func TestTriangleCoverage(t *testing.T) {
 		}
 	}
 }
+
+// BenchmarkRasteriseAll measures steady-state performance by reusing a single
+// Rasteriser across all test cases. This tests buffer reuse with varying clip sizes.
+func BenchmarkRasteriseAll(b *testing.B) {
+	// Collect all test cases
+	var cases []testcases.TestCase
+	for _, category := range slices.Sorted(maps.Keys(testcases.All)) {
+		cases = append(cases, testcases.All[category]...)
+	}
+
+	// Create rasteriser once, reuse across all iterations
+	r := NewRasteriser(rect.Rect{})
+
+	// No-op emit callback - we're measuring rasterisation, not compositing
+	emit := func(y, xMin int, coverage []float32) {}
+
+	b.ResetTimer()
+	for b.Loop() {
+		for _, tc := range cases {
+			// Update clip for this test case
+			r.Clip = rect.Rect{
+				LLx: 0,
+				LLy: 0,
+				URx: float64(tc.Width),
+				URy: float64(tc.Height),
+			}
+
+			// Apply CTM
+			if tc.CTM != (matrix.Matrix{}) {
+				r.CTM = tc.CTM
+			} else {
+				r.CTM = matrix.Identity
+			}
+
+			// Render
+			switch op := tc.Op.(type) {
+			case testcases.Fill:
+				if op.Rule == testcases.EvenOdd {
+					r.FillEvenOdd(tc.Path, emit)
+				} else {
+					r.FillNonZero(tc.Path, emit)
+				}
+			case testcases.Stroke:
+				r.Width = op.Width
+				r.Cap = op.Cap
+				r.Join = op.Join
+				r.MiterLimit = op.MiterLimit
+				r.Dash = op.Dash
+				r.DashPhase = op.DashPhase
+				r.Stroke(tc.Path, emit)
+			}
+		}
+	}
+}

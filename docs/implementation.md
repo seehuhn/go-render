@@ -240,10 +240,6 @@ const (
     // machine epsilon (~2.2e-16) but far below visual perception.
     zeroLengthThreshold = 1e-10
 
-    // zeroLengthThresholdSq is zeroLengthThreshold squared, for efficient
-    // comparison without sqrt.
-    zeroLengthThresholdSq = 1e-20
-
     // collinearityThreshold is the |sin(θ)| threshold below which two
     // unit vectors are considered collinear. At this threshold, the angle
     // is approximately 0.00006 degrees (0.2 arc-seconds).
@@ -271,11 +267,6 @@ const (
     // This converts joins to bevels when the interior angle is less than
     // approximately 11.5 degrees.
     DefaultMiterLimit = 10.0
-
-    // minArcSegments is the minimum number of segments used to approximate
-    // a full circle, regardless of flatness tolerance. This prevents
-    // degenerate approximations at very large tolerances.
-    minArcSegments = 4
 
     // smallPathThreshold is the maximum bounding box area (in pixels) for
     // using 2D buffers (Approach A). Paths with larger bounding boxes use

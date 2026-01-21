@@ -10754,7 +10754,172 @@
       "miter_limit": 10
     },
     {
-      "name": "stroke_cap_zero_length_round",
+      "name": "stroke_cap_zero_closed_round",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              32,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "stroke",
+      "line_width": 8,
+      "line_cap": "round",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_cap_zero_closed_butt",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              32,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "stroke",
+      "line_width": 8,
+      "line_cap": "butt",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_cap_zero_closed_square",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              32,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "Z",
+          "pts": []
+        }
+      ],
+      "op": "stroke",
+      "line_width": 8,
+      "line_cap": "square",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_cap_zero_line_round",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              32,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              32,
+              32
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 8,
+      "line_cap": "round",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_cap_zero_line_butt",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              32,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              32,
+              32
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 8,
+      "line_cap": "butt",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_cap_zero_line_square",
+      "width": 64,
+      "height": 64,
+      "path": [
+        {
+          "cmd": "M",
+          "pts": [
+            [
+              32,
+              32
+            ]
+          ]
+        },
+        {
+          "cmd": "L",
+          "pts": [
+            [
+              32,
+              32
+            ]
+          ]
+        }
+      ],
+      "op": "stroke",
+      "line_width": 8,
+      "line_cap": "square",
+      "line_join": "miter",
+      "miter_limit": 10
+    },
+    {
+      "name": "stroke_cap_trailing_moveto_round",
       "width": 64,
       "height": 64,
       "path": [
@@ -10775,7 +10940,7 @@
       "miter_limit": 10
     },
     {
-      "name": "stroke_cap_zero_length_butt",
+      "name": "stroke_cap_trailing_moveto_butt",
       "width": 64,
       "height": 64,
       "path": [
@@ -10796,7 +10961,7 @@
       "miter_limit": 10
     },
     {
-      "name": "stroke_cap_zero_length_square",
+      "name": "stroke_cap_trailing_moveto_square",
       "width": 64,
       "height": 64,
       "path": [

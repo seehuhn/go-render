@@ -73,6 +73,12 @@ type edge struct {
 	dxdy   float64 // (x1-x0)/(y1-y0), precomputed for x-intercept calculation
 }
 
+// crossing represents a point where an edge crosses a pixel boundary.
+type crossing struct {
+	y float64
+	x float64
+}
+
 // strokeSegment represents a line segment with precomputed geometry for stroking.
 type strokeSegment struct {
 	A, B vec.Vec2 // endpoints in user space
@@ -130,15 +136,17 @@ type Rasteriser struct {
 	smallPathThreshold int
 
 	// Internal buffers (reused across calls)
-	cover          []float32    // coverage accumulation: cover change per pixel
-	area           []float32    // coverage accumulation: area within pixel
-	output         []float32    // final coverage values for callback
-	edges          []edge       // edge list for current path (device coordinates)
-	active         []int        // indices of active edges (for Approach B)
-	xMin           []int        // per-scanline minimum x with edge contribution
-	xMax           []int        // per-scanline maximum x with edge contribution
-	stroke         []vec.Vec2   // stroke outline vertices for current subpath
-	strokePolygons [][]vec.Vec2 // collected stroke polygons for compound fill
+	cover         []float32   // coverage accumulation: cover change per pixel
+	area          []float32   // coverage accumulation: area within pixel
+	output        []float32   // final coverage values for callback
+	edges         []edge      // edge list for current path (device coordinates)
+	active        []int       // indices of active edges (for Approach B)
+	xMin          []int       // per-scanline minimum x with edge contribution
+	xMax          []int       // per-scanline maximum x with edge contribution
+	stroke        []vec.Vec2  // stroke outline vertices (all subpaths contiguous)
+	strokeOffsets []int       // start index of each stroke polygon in stroke[]
+	crossings     []crossing  // reusable buffer for edge/pixel boundary crossings
+	yieldPt       [1]vec.Vec2 // reusable buffer for yielding single points in path iterators
 }
 
 // NewRasteriser creates a new Rasteriser with the given clip rectangle
@@ -448,27 +456,23 @@ func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 	// Then process each segment between consecutive crossings
 	dydx := 1 / e.dxdy
 
-	// Build list of (y, x) crossing points, sorted by y
-	type crossing struct {
-		y float64
-		x float64
-	}
-	crossings := make([]crossing, 0, pixRight-pixLeft+2)
+	// Build list of (y, x) crossing points, sorted by y (reuse buffer)
+	r.crossings = r.crossings[:0]
 
 	// Add start and end points
-	crossings = append(crossings, crossing{yTop, xAtYTop})
-	crossings = append(crossings, crossing{yBot, xAtYBot})
+	r.crossings = append(r.crossings, crossing{yTop, xAtYTop})
+	r.crossings = append(r.crossings, crossing{yBot, xAtYBot})
 
 	// Add crossings at integer x boundaries
 	for x := pixLeft + 1; x <= pixRight; x++ {
 		yAtX := e.y0 + dydx*(float64(x)-e.x0)
 		if yAtX > yTop && yAtX < yBot {
-			crossings = append(crossings, crossing{yAtX, float64(x)})
+			r.crossings = append(r.crossings, crossing{yAtX, float64(x)})
 		}
 	}
 
 	// Sort crossings by y
-	slices.SortFunc(crossings, func(a, b crossing) int {
+	slices.SortFunc(r.crossings, func(a, b crossing) int {
 		if a.y < b.y {
 			return -1
 		}
@@ -479,9 +483,9 @@ func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 	})
 
 	// Process each segment between consecutive crossings
-	for i := 0; i < len(crossings)-1; i++ {
-		y0 := crossings[i].y
-		y1 := crossings[i+1].y
+	for i := range len(r.crossings) - 1 {
+		y0 := r.crossings[i].y
+		y1 := r.crossings[i+1].y
 		segDy := y1 - y0
 		if segDy <= 0 {
 			continue
@@ -819,8 +823,8 @@ func (r *Rasteriser) fillScanline(xMin, xMax, yMin, yMax int, rule fillRule, emi
 // of the callback.
 func (r *Rasteriser) Stroke(p path.Path, emit func(y, xMin int, coverage []float32)) {
 	// Flatten path into subpaths
-	subpaths := r.flattenPath(p)
-	if len(subpaths) == 0 {
+	subpaths, degeneratePoints := r.flattenPath(p)
+	if len(subpaths) == 0 && len(degeneratePoints) == 0 {
 		return
 	}
 
@@ -829,18 +833,45 @@ func (r *Rasteriser) Stroke(p path.Path, emit func(y, xMin int, coverage []float
 		subpaths = r.applyDashPattern(subpaths)
 	}
 
-	// Build stroke outlines for all subpaths, collecting them for compound fill.
-	// This ensures overlapping dash segments are composited correctly using
-	// the nonzero winding rule (overlapping regions painted once, not twice).
-	r.strokePolygons = r.strokePolygons[:0]
+	// Build stroke outlines for all subpaths into a single contiguous buffer.
+	// strokeOffsets tracks where each polygon starts. This ensures overlapping
+	// dash segments are composited correctly using the nonzero winding rule.
+	r.stroke = r.stroke[:0]
+	r.strokeOffsets = r.strokeOffsets[:0]
+
+	// Handle degenerate subpaths (no orientation): only round cap produces circle
+	if r.Cap == graphics.LineCapRound {
+		for _, pt := range degeneratePoints {
+			startOffset := len(r.stroke)
+			r.addArc(pt, r.Width/2, vec.Vec2{X: 1, Y: 0}, 2*math.Pi, true)
+			r.strokeOffsets = append(r.strokeOffsets, startOffset)
+		}
+	}
+
 	for _, sp := range subpaths {
-		r.stroke = r.stroke[:0]
+		// Handle dash-created zero-length segments (have orientation from underlying path)
+		if len(sp.segments) == 1 && sp.segments[0].A == sp.segments[0].B {
+			seg := &sp.segments[0]
+			startOffset := len(r.stroke)
+			switch r.Cap {
+			case graphics.LineCapRound:
+				r.addArc(seg.A, r.Width/2, vec.Vec2{X: 1, Y: 0}, 2*math.Pi, true)
+				r.strokeOffsets = append(r.strokeOffsets, startOffset)
+			case graphics.LineCapSquare:
+				r.addSquare(seg.A, seg.T, r.Width/2)
+				r.strokeOffsets = append(r.strokeOffsets, startOffset)
+			}
+			// Butt cap: no output
+			continue
+		}
+
+		startOffset := len(r.stroke)
 		r.strokeSubpath(sp.segments, sp.closed)
-		if len(r.stroke) >= 3 {
-			// Copy the polygon vertices (r.stroke will be reused)
-			poly := make([]vec.Vec2, len(r.stroke))
-			copy(poly, r.stroke)
-			r.strokePolygons = append(r.strokePolygons, poly)
+		if len(r.stroke)-startOffset >= 3 {
+			r.strokeOffsets = append(r.strokeOffsets, startOffset)
+		} else {
+			// Degenerate polygon, discard by resetting to start
+			r.stroke = r.stroke[:startOffset]
 		}
 	}
 
@@ -849,13 +880,14 @@ func (r *Rasteriser) Stroke(p path.Path, emit func(y, xMin int, coverage []float
 }
 
 // flattenPath walks the path, flattens curves, and returns subpaths with
-// precomputed segment geometry.
-func (r *Rasteriser) flattenPath(p path.Path) []strokeSubpath {
-	var subpaths []strokeSubpath
+// precomputed segment geometry. Degenerate subpaths (no orientation) are
+// returned separately for special handling.
+func (r *Rasteriser) flattenPath(p path.Path) (subpaths []strokeSubpath, degeneratePoints []vec.Vec2) {
 	var current []strokeSegment
 	var currentPt vec.Vec2
 	var subpathStart vec.Vec2
 	inSubpath := false
+	sawDrawingCmd := false // tracks if we saw LineTo/QuadTo/CubeTo (for degenerate detection)
 
 	// Helper to add a line segment to current subpath
 	addSegment := func(a, b vec.Vec2) {
@@ -873,18 +905,25 @@ func (r *Rasteriser) flattenPath(p path.Path) []strokeSubpath {
 		switch cmd {
 		case path.CmdMoveTo:
 			// Close previous subpath if needed
-			if inSubpath && len(current) > 0 {
-				subpaths = append(subpaths, strokeSubpath{segments: current, closed: false})
+			if inSubpath && (len(current) > 0 || sawDrawingCmd) {
+				if len(current) == 0 {
+					// Degenerate subpath (no orientation) - collect for special handling
+					degeneratePoints = append(degeneratePoints, subpathStart)
+				} else {
+					subpaths = append(subpaths, strokeSubpath{segments: current, closed: false})
+				}
 				current = nil
 			}
 			currentPt = pts[0]
 			subpathStart = currentPt
 			inSubpath = true
+			sawDrawingCmd = false
 
 		case path.CmdLineTo:
 			if !inSubpath {
 				continue
 			}
+			sawDrawingCmd = true
 			addSegment(currentPt, pts[0])
 			currentPt = pts[0]
 
@@ -892,6 +931,7 @@ func (r *Rasteriser) flattenPath(p path.Path) []strokeSubpath {
 			if !inSubpath {
 				continue
 			}
+			sawDrawingCmd = true
 			p0 := currentPt
 			p1 := pts[0] // control point
 			p2 := pts[1] // endpoint
@@ -904,6 +944,7 @@ func (r *Rasteriser) flattenPath(p path.Path) []strokeSubpath {
 			if !inSubpath {
 				continue
 			}
+			sawDrawingCmd = true
 			p0 := currentPt
 			p1 := pts[0] // control point 1
 			p2 := pts[1] // control point 2
@@ -919,32 +960,41 @@ func (r *Rasteriser) flattenPath(p path.Path) []strokeSubpath {
 				if currentPt != subpathStart {
 					addSegment(currentPt, subpathStart)
 				}
-				if len(current) > 0 {
+				if len(current) == 0 {
+					// Degenerate closed subpath - collect for special handling
+					degeneratePoints = append(degeneratePoints, subpathStart)
+				} else {
 					subpaths = append(subpaths, strokeSubpath{segments: current, closed: true})
 				}
 				current = nil
 				currentPt = subpathStart
 				inSubpath = false
+				sawDrawingCmd = false
 			}
 		}
 	}
 
 	// Handle unclosed subpath at end
-	if inSubpath && len(current) > 0 {
-		subpaths = append(subpaths, strokeSubpath{segments: current, closed: false})
+	if inSubpath && (len(current) > 0 || sawDrawingCmd) {
+		if len(current) == 0 {
+			// Degenerate subpath - collect for special handling
+			degeneratePoints = append(degeneratePoints, subpathStart)
+		} else {
+			subpaths = append(subpaths, strokeSubpath{segments: current, closed: false})
+		}
 	}
 
-	return subpaths
+	return subpaths, degeneratePoints
 }
 
 // strokeSubpath builds the stroke outline for a single subpath into r.stroke.
 // The stroke outline is built as a closed polygon: forward pass on the +N side,
 // then backward pass on the -N side. Join geometry is added on the outer side
 // of each corner, which depends on the turn direction.
+// Zero-length subpaths are handled by the caller before invoking this method.
 func (r *Rasteriser) strokeSubpath(segs []strokeSegment, closed bool) {
 	if len(segs) == 0 {
-		// Zero-length subpath: round cap = circle, others = nothing
-		return
+		return // empty, nothing to do
 	}
 
 	d := r.Width / 2 // half-width
@@ -1232,6 +1282,20 @@ func (r *Rasteriser) addArc(center vec.Vec2, radius float64, startDir vec.Vec2, 
 	}
 }
 
+// addSquare adds a filled square to the stroke outline for a zero-length
+// dash segment with square caps. The square is centered at the point with
+// side length = 2*d (i.e., the line width), oriented by the tangent T.
+func (r *Rasteriser) addSquare(center vec.Vec2, T vec.Vec2, d float64) {
+	N := vec.Vec2{X: -T.Y, Y: T.X} // normal (90° CCW from T)
+	// Four corners of the square
+	r.stroke = append(r.stroke,
+		center.Add(T.Mul(d)).Add(N.Mul(d)),
+		center.Add(T.Mul(d)).Sub(N.Mul(d)),
+		center.Sub(T.Mul(d)).Sub(N.Mul(d)),
+		center.Sub(T.Mul(d)).Add(N.Mul(d)),
+	)
+}
+
 // applyDashPattern applies the dash pattern to subpaths.
 // Returns a new slice of subpaths with the pattern applied.
 func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath {
@@ -1395,21 +1459,29 @@ func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath 
 // fillStrokeOutlines fills all collected stroke polygons as a compound path.
 // Using nonzero winding rule ensures overlapping regions are painted once.
 func (r *Rasteriser) fillStrokeOutlines(emit func(y, xMin int, coverage []float32)) {
-	if len(r.strokePolygons) == 0 {
+	if len(r.strokeOffsets) == 0 {
 		return
 	}
 
 	// Build compound path from all stroke polygons
 	strokePath := func(yield func(path.Command, []vec.Vec2) bool) {
-		for _, poly := range r.strokePolygons {
-			if len(poly) < 3 {
-				continue
+		for i, start := range r.strokeOffsets {
+			// Determine end of this polygon
+			var end int
+			if i+1 < len(r.strokeOffsets) {
+				end = r.strokeOffsets[i+1]
+			} else {
+				end = len(r.stroke)
 			}
-			if !yield(path.CmdMoveTo, []vec.Vec2{poly[0]}) {
+			poly := r.stroke[start:end]
+
+			r.yieldPt[0] = poly[0]
+			if !yield(path.CmdMoveTo, r.yieldPt[:]) {
 				return
 			}
-			for i := 1; i < len(poly); i++ {
-				if !yield(path.CmdLineTo, []vec.Vec2{poly[i]}) {
+			for j := 1; j < len(poly); j++ {
+				r.yieldPt[0] = poly[j]
+				if !yield(path.CmdLineTo, r.yieldPt[:]) {
 					return
 				}
 			}
@@ -1435,4 +1507,6 @@ func (r *Rasteriser) Reset() {
 	r.xMin = nil
 	r.xMax = nil
 	r.stroke = nil
+	r.strokeOffsets = nil
+	r.crossings = nil
 }

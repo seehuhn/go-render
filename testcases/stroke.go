@@ -361,10 +361,11 @@ var strokeCases = []TestCase{
 		},
 	},
 
-	// Zero-length subpath
+	// Zero-length subpath: single-point closed path (MoveTo + Close)
+	// Per PDF spec: round caps produce filled circle, others produce nothing
 	{
-		Name:   "cap_zero_length_round",
-		Path:   zeroLengthPath(32, 32),
+		Name:   "cap_zero_closed_round",
+		Path:   zeroLengthClosedPath(32, 32),
 		Width:  64,
 		Height: 64,
 		Op: Stroke{
@@ -375,8 +376,8 @@ var strokeCases = []TestCase{
 		},
 	},
 	{
-		Name:   "cap_zero_length_butt",
-		Path:   zeroLengthPath(32, 32),
+		Name:   "cap_zero_closed_butt",
+		Path:   zeroLengthClosedPath(32, 32),
 		Width:  64,
 		Height: 64,
 		Op: Stroke{
@@ -387,8 +388,87 @@ var strokeCases = []TestCase{
 		},
 	},
 	{
-		Name:   "cap_zero_length_square",
-		Path:   zeroLengthPath(32, 32),
+		Name:   "cap_zero_closed_square",
+		Path:   zeroLengthClosedPath(32, 32),
+		Width:  64,
+		Height: 64,
+		Op: Stroke{
+			Width:      8,
+			Cap:        graphics.LineCapSquare,
+			Join:       graphics.LineJoinMiter,
+			MiterLimit: 10,
+		},
+	},
+
+	// Zero-length subpath: two points at same coordinates (MoveTo + LineTo same point)
+	// Per PDF spec: round caps produce filled circle, others produce nothing
+	{
+		Name:   "cap_zero_line_round",
+		Path:   zeroLengthLinePath(32, 32),
+		Width:  64,
+		Height: 64,
+		Op: Stroke{
+			Width:      8,
+			Cap:        graphics.LineCapRound,
+			Join:       graphics.LineJoinMiter,
+			MiterLimit: 10,
+		},
+	},
+	{
+		Name:   "cap_zero_line_butt",
+		Path:   zeroLengthLinePath(32, 32),
+		Width:  64,
+		Height: 64,
+		Op: Stroke{
+			Width:      8,
+			Cap:        graphics.LineCapButt,
+			Join:       graphics.LineJoinMiter,
+			MiterLimit: 10,
+		},
+	},
+	{
+		Name:   "cap_zero_line_square",
+		Path:   zeroLengthLinePath(32, 32),
+		Width:  64,
+		Height: 64,
+		Op: Stroke{
+			Width:      8,
+			Cap:        graphics.LineCapSquare,
+			Join:       graphics.LineJoinMiter,
+			MiterLimit: 10,
+		},
+	},
+
+	// Single-point open subpath (trailing MoveTo, no Close)
+	// Per PDF spec: "A single-point open subpath (specified by a trailing m operator)
+	// shall produce no output." - regardless of cap style
+	{
+		Name:   "cap_trailing_moveto_round",
+		Path:   trailingMoveToPath(32, 32),
+		Width:  64,
+		Height: 64,
+		Op: Stroke{
+			Width:      8,
+			Cap:        graphics.LineCapRound,
+			Join:       graphics.LineJoinMiter,
+			MiterLimit: 10,
+		},
+	},
+	{
+		Name:   "cap_trailing_moveto_butt",
+		Path:   trailingMoveToPath(32, 32),
+		Width:  64,
+		Height: 64,
+		Op: Stroke{
+			Width:      8,
+			Cap:        graphics.LineCapButt,
+			Join:       graphics.LineJoinMiter,
+			MiterLimit: 10,
+		},
+	},
+	{
+		Name:   "cap_trailing_moveto_square",
+		Path:   trailingMoveToPath(32, 32),
 		Width:  64,
 		Height: 64,
 		Op: Stroke{
@@ -1039,8 +1119,34 @@ func diagonalLine(cx, cy, angleDeg, length float64) path.Path {
 	}
 }
 
-// zeroLengthPath builds a path with just a MoveTo (zero length subpath).
-func zeroLengthPath(x, y float64) path.Path {
+// zeroLengthClosedPath builds a single-point closed path (MoveTo + Close).
+// Per PDF spec, this is a degenerate subpath that should produce a filled
+// circle with round caps.
+func zeroLengthClosedPath(x, y float64) path.Path {
+	return func(yield func(path.Command, []vec.Vec2) bool) {
+		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x, Y: y}}) {
+			return
+		}
+		yield(path.CmdClose, nil)
+	}
+}
+
+// zeroLengthLinePath builds a path with two points at the same coordinates
+// (MoveTo + LineTo to same point). Per PDF spec, this is a degenerate subpath
+// that should produce a filled circle with round caps.
+func zeroLengthLinePath(x, y float64) path.Path {
+	return func(yield func(path.Command, []vec.Vec2) bool) {
+		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x, Y: y}}) {
+			return
+		}
+		yield(path.CmdLineTo, []vec.Vec2{{X: x, Y: y}})
+	}
+}
+
+// trailingMoveToPath builds a single-point open subpath (just a MoveTo).
+// Per PDF spec: "A single-point open subpath (specified by a trailing m operator)
+// shall produce no output."
+func trailingMoveToPath(x, y float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		yield(path.CmdMoveTo, []vec.Vec2{{X: x, Y: y}})
 	}
