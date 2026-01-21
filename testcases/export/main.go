@@ -111,9 +111,9 @@ func toJSON(category string, tc testcases.TestCase) jsonTestCase {
 	return jtc
 }
 
-func pathToJSON(p path.Path) []jsonSegment {
+func pathToJSON(p *path.Data) []jsonSegment {
 	var segs []jsonSegment
-	for cmd, pts := range p {
+	for cmd, pts := range p.Iter() {
 		seg := jsonSegment{Pts: make([][]float64, len(pts))}
 		switch cmd {
 		case path.CmdMoveTo:

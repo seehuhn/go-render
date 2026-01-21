@@ -21,7 +21,6 @@ import (
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/pdf/graphics"
 )
 
@@ -190,33 +189,25 @@ var ctmCases = []TestCase{
 }
 
 // horizontalLineCentered creates a horizontal line centered at origin.
-func horizontalLineCentered(x1, y, x2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y) {
-			return
-		}
-		lineTo(yield, x2, y)
-	}
+func horizontalLineCentered(x1, y, x2 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y)).
+		LineTo(pt(x2, y))
 }
 
 // cornerCentered creates a corner path centered at (cx, cy) with given angle.
-func cornerCentered(cx, cy float64, angle float64) path.Path {
+func cornerCentered(cx, cy float64, angle float64) *path.Data {
 	length := 20.0
 	halfAngle := angle / 2
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// First arm extends up-left
-		x1 := cx - length*math.Cos(halfAngle)
-		y1 := cy - length*math.Sin(halfAngle)
-		// Second arm extends up-right
-		x2 := cx + length*math.Cos(halfAngle)
-		y2 := cy - length*math.Sin(halfAngle)
+	// First arm extends up-left
+	x1 := cx - length*math.Cos(halfAngle)
+	y1 := cy - length*math.Sin(halfAngle)
+	// Second arm extends up-right
+	x2 := cx + length*math.Cos(halfAngle)
+	y2 := cy - length*math.Sin(halfAngle)
 
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, cx, cy) {
-			return
-		}
-		lineTo(yield, x2, y2)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(cx, cy)).
+		LineTo(pt(x2, y2))
 }

@@ -18,7 +18,6 @@ package testcases
 
 import (
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/vec"
 )
 
 // largeCases contains test cases with bounding boxes > 65536 pixels
@@ -78,34 +77,26 @@ var largeCases = []TestCase{
 }
 
 // rectangleGrid builds a grid of rectangles.
-func rectangleGrid(rows, cols, width, height int, gap float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		cellW := float64(width) / float64(cols)
-		cellH := float64(height) / float64(rows)
+func rectangleGrid(rows, cols, width, height int, gap float64) *path.Data {
+	cellW := float64(width) / float64(cols)
+	cellH := float64(height) / float64(rows)
 
-		for row := 0; row < rows; row++ {
-			for col := 0; col < cols; col++ {
-				x1 := float64(col)*cellW + gap
-				y1 := float64(row)*cellH + gap
-				x2 := float64(col+1)*cellW - gap
-				y2 := float64(row+1)*cellH - gap
+	p := &path.Data{}
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			x1 := float64(col)*cellW + gap
+			y1 := float64(row)*cellH + gap
+			x2 := float64(col+1)*cellW - gap
+			y2 := float64(row+1)*cellH - gap
 
-				if !moveTo(yield, x1, y1) {
-					return
-				}
-				if !lineTo(yield, x2, y1) {
-					return
-				}
-				if !lineTo(yield, x2, y2) {
-					return
-				}
-				if !lineTo(yield, x1, y2) {
-					return
-				}
-				if !closePath(yield) {
-					return
-				}
-			}
+			p = p.
+				MoveTo(pt(x1, y1)).
+				LineTo(pt(x2, y1)).
+				LineTo(pt(x2, y2)).
+				LineTo(pt(x1, y2)).
+				Close()
 		}
 	}
+
+	return p
 }

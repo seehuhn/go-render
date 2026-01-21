@@ -18,7 +18,6 @@ package testcases
 
 import (
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/vec"
 )
 
 var subpathCases = []TestCase{
@@ -68,183 +67,110 @@ var subpathCases = []TestCase{
 }
 
 // twoTriangles builds two separate, disjoint triangles.
-func twoTriangles(cx1, cy1, cx2, cy2 float64, size float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// First triangle
-		if !moveTo(yield, cx1, cy1-size) {
-			return
-		}
-		if !lineTo(yield, cx1+size, cy1+size) {
-			return
-		}
-		if !lineTo(yield, cx1-size, cy1+size) {
-			return
-		}
-		if !closePath(yield) {
-			return
-		}
+func twoTriangles(cx1, cy1, cx2, cy2 float64, size float64) *path.Data {
+	// First triangle
+	p := (&path.Data{}).
+		MoveTo(pt(cx1, cy1-size)).
+		LineTo(pt(cx1+size, cy1+size)).
+		LineTo(pt(cx1-size, cy1+size)).
+		Close()
 
-		// Second triangle
-		if !moveTo(yield, cx2, cy2-size) {
-			return
-		}
-		if !lineTo(yield, cx2+size, cy2+size) {
-			return
-		}
-		if !lineTo(yield, cx2-size, cy2+size) {
-			return
-		}
-		closePath(yield)
-	}
+	// Second triangle
+	return p.
+		MoveTo(pt(cx2, cy2-size)).
+		LineTo(pt(cx2+size, cy2+size)).
+		LineTo(pt(cx2-size, cy2+size)).
+		Close()
 }
 
 // overlappingRectangles builds two overlapping rectangles.
-func overlappingRectangles(x1a, y1a, x2a, y2a, x1b, y1b, x2b, y2b float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// First rectangle
-		if !moveTo(yield, x1a, y1a) {
-			return
-		}
-		if !lineTo(yield, x2a, y1a) {
-			return
-		}
-		if !lineTo(yield, x2a, y2a) {
-			return
-		}
-		if !lineTo(yield, x1a, y2a) {
-			return
-		}
-		if !closePath(yield) {
-			return
-		}
+func overlappingRectangles(x1a, y1a, x2a, y2a, x1b, y1b, x2b, y2b float64) *path.Data {
+	// First rectangle
+	p := (&path.Data{}).
+		MoveTo(pt(x1a, y1a)).
+		LineTo(pt(x2a, y1a)).
+		LineTo(pt(x2a, y2a)).
+		LineTo(pt(x1a, y2a)).
+		Close()
 
-		// Second rectangle
-		if !moveTo(yield, x1b, y1b) {
-			return
-		}
-		if !lineTo(yield, x2b, y1b) {
-			return
-		}
-		if !lineTo(yield, x2b, y2b) {
-			return
-		}
-		if !lineTo(yield, x1b, y2b) {
-			return
-		}
-		closePath(yield)
-	}
+	// Second rectangle
+	return p.
+		MoveTo(pt(x1b, y1b)).
+		LineTo(pt(x2b, y1b)).
+		LineTo(pt(x2b, y2b)).
+		LineTo(pt(x1b, y2b)).
+		Close()
 }
 
 // ringShape builds a ring (outer rectangle with inner rectangle cutout).
-func ringShape(cx, cy, outerSize, innerSize float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Outer rectangle (clockwise)
-		if !moveTo(yield, cx-outerSize, cy-outerSize) {
-			return
-		}
-		if !lineTo(yield, cx+outerSize, cy-outerSize) {
-			return
-		}
-		if !lineTo(yield, cx+outerSize, cy+outerSize) {
-			return
-		}
-		if !lineTo(yield, cx-outerSize, cy+outerSize) {
-			return
-		}
-		if !closePath(yield) {
-			return
-		}
+func ringShape(cx, cy, outerSize, innerSize float64) *path.Data {
+	// Outer rectangle (clockwise)
+	p := (&path.Data{}).
+		MoveTo(pt(cx-outerSize, cy-outerSize)).
+		LineTo(pt(cx+outerSize, cy-outerSize)).
+		LineTo(pt(cx+outerSize, cy+outerSize)).
+		LineTo(pt(cx-outerSize, cy+outerSize)).
+		Close()
 
-		// Inner rectangle (clockwise - same winding, will be hole with even-odd)
-		if !moveTo(yield, cx-innerSize, cy-innerSize) {
-			return
-		}
-		if !lineTo(yield, cx+innerSize, cy-innerSize) {
-			return
-		}
-		if !lineTo(yield, cx+innerSize, cy+innerSize) {
-			return
-		}
-		if !lineTo(yield, cx-innerSize, cy+innerSize) {
-			return
-		}
-		closePath(yield)
-	}
+	// Inner rectangle (clockwise - same winding, will be hole with even-odd)
+	return p.
+		MoveTo(pt(cx-innerSize, cy-innerSize)).
+		LineTo(pt(cx+innerSize, cy-innerSize)).
+		LineTo(pt(cx+innerSize, cy+innerSize)).
+		LineTo(pt(cx-innerSize, cy+innerSize)).
+		Close()
 }
 
 // multipleRings builds multiple concentric donut shapes.
-func multipleRings(cx, cy float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Three concentric rings with different offsets
-		rings := []struct{ cx, cy, outer, inner float64 }{
-			{cx - 30, cy - 30, 20, 10},
-			{cx + 30, cy - 30, 20, 10},
-			{cx, cy + 30, 20, 10},
-		}
-
-		for _, ring := range rings {
-			// Outer rectangle
-			if !moveTo(yield, ring.cx-ring.outer, ring.cy-ring.outer) {
-				return
-			}
-			if !lineTo(yield, ring.cx+ring.outer, ring.cy-ring.outer) {
-				return
-			}
-			if !lineTo(yield, ring.cx+ring.outer, ring.cy+ring.outer) {
-				return
-			}
-			if !lineTo(yield, ring.cx-ring.outer, ring.cy+ring.outer) {
-				return
-			}
-			if !closePath(yield) {
-				return
-			}
-
-			// Inner rectangle
-			if !moveTo(yield, ring.cx-ring.inner, ring.cy-ring.inner) {
-				return
-			}
-			if !lineTo(yield, ring.cx+ring.inner, ring.cy-ring.inner) {
-				return
-			}
-			if !lineTo(yield, ring.cx+ring.inner, ring.cy+ring.inner) {
-				return
-			}
-			if !lineTo(yield, ring.cx-ring.inner, ring.cy+ring.inner) {
-				return
-			}
-			if !closePath(yield) {
-				return
-			}
-		}
+func multipleRings(cx, cy float64) *path.Data {
+	// Three concentric rings with different offsets
+	rings := []struct{ cx, cy, outer, inner float64 }{
+		{cx - 30, cy - 30, 20, 10},
+		{cx + 30, cy - 30, 20, 10},
+		{cx, cy + 30, 20, 10},
 	}
+
+	p := &path.Data{}
+	for _, ring := range rings {
+		// Outer rectangle
+		p = p.
+			MoveTo(pt(ring.cx-ring.outer, ring.cy-ring.outer)).
+			LineTo(pt(ring.cx+ring.outer, ring.cy-ring.outer)).
+			LineTo(pt(ring.cx+ring.outer, ring.cy+ring.outer)).
+			LineTo(pt(ring.cx-ring.outer, ring.cy+ring.outer)).
+			Close()
+
+		// Inner rectangle
+		p = p.
+			MoveTo(pt(ring.cx-ring.inner, ring.cy-ring.inner)).
+			LineTo(pt(ring.cx+ring.inner, ring.cy-ring.inner)).
+			LineTo(pt(ring.cx+ring.inner, ring.cy+ring.inner)).
+			LineTo(pt(ring.cx-ring.inner, ring.cy+ring.inner)).
+			Close()
+	}
+
+	return p
 }
 
 // manySmallShapes builds a grid of small triangles (stress test).
-func manySmallShapes(rows, cols int) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		size := 5.0
-		spacing := 14.0
+func manySmallShapes(rows, cols int) *path.Data {
+	size := 5.0
+	spacing := 14.0
 
-		for row := 0; row < rows; row++ {
-			for col := 0; col < cols; col++ {
-				cx := 10.0 + float64(col)*spacing
-				cy := 10.0 + float64(row)*spacing
+	p := &path.Data{}
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			cx := 10.0 + float64(col)*spacing
+			cy := 10.0 + float64(row)*spacing
 
-				// Small triangle
-				if !moveTo(yield, cx, cy-size) {
-					return
-				}
-				if !lineTo(yield, cx+size, cy+size) {
-					return
-				}
-				if !lineTo(yield, cx-size, cy+size) {
-					return
-				}
-				if !closePath(yield) {
-					return
-				}
-			}
+			// Small triangle
+			p = p.
+				MoveTo(pt(cx, cy-size)).
+				LineTo(pt(cx+size, cy+size)).
+				LineTo(pt(cx-size, cy+size)).
+				Close()
 		}
 	}
+
+	return p
 }

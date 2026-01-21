@@ -109,9 +109,9 @@ func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int,
 	switch op := tc.Op.(type) {
 	case testcases.Fill:
 		if op.Rule == testcases.EvenOdd {
-			r.FillEvenOdd(tc.Path, emit)
+			r.FillEvenOdd(tc.Path.Iter(), emit)
 		} else {
-			r.FillNonZero(tc.Path, emit)
+			r.FillNonZero(tc.Path.Iter(), emit)
 		}
 	case testcases.Stroke:
 		r.Width = op.Width
@@ -120,7 +120,7 @@ func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int,
 		r.MiterLimit = op.MiterLimit
 		r.Dash = op.Dash
 		r.DashPhase = op.DashPhase
-		r.Stroke(tc.Path, emit)
+		r.Stroke(tc.Path.Iter(), emit)
 	}
 }
 
@@ -315,9 +315,9 @@ func BenchmarkRasteriseAll(b *testing.B) {
 			switch op := tc.Op.(type) {
 			case testcases.Fill:
 				if op.Rule == testcases.EvenOdd {
-					r.FillEvenOdd(tc.Path, emit)
+					r.FillEvenOdd(tc.Path.Iter(), emit)
 				} else {
-					r.FillNonZero(tc.Path, emit)
+					r.FillNonZero(tc.Path.Iter(), emit)
 				}
 			case testcases.Stroke:
 				r.Width = op.Width
@@ -326,7 +326,7 @@ func BenchmarkRasteriseAll(b *testing.B) {
 				r.MiterLimit = op.MiterLimit
 				r.Dash = op.Dash
 				r.DashPhase = op.DashPhase
-				r.Stroke(tc.Path, emit)
+				r.Stroke(tc.Path.Iter(), emit)
 			}
 		}
 	}

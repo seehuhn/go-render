@@ -18,7 +18,6 @@ package testcases
 
 import (
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/pdf/graphics"
 )
 
@@ -233,188 +232,116 @@ var curveCases = []TestCase{
 }
 
 // quadraticCurve builds a closed shape with a quadratic Bezier curve.
-func quadraticCurve(x1, y1, cx, cy, x2, y2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !quadTo(yield, cx, cy, x2, y2) {
-			return
-		}
-		closePath(yield)
-	}
+func quadraticCurve(x1, y1, cx, cy, x2, y2 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		QuadTo(pt(cx, cy), pt(x2, y2)).
+		Close()
 }
 
 // quadraticCurveOpen builds an open path with a quadratic Bezier curve (for stroking).
-func quadraticCurveOpen(x1, y1, cx, cy, x2, y2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		quadTo(yield, cx, cy, x2, y2)
-	}
+func quadraticCurveOpen(x1, y1, cx, cy, x2, y2 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		QuadTo(pt(cx, cy), pt(x2, y2))
 }
 
 // cubicCurve builds a closed shape with a cubic Bezier curve.
-func cubicCurve(x1, y1, c1x, c1y, c2x, c2y, x2, y2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !cubeTo(yield, c1x, c1y, c2x, c2y, x2, y2) {
-			return
-		}
-		closePath(yield)
-	}
+func cubicCurve(x1, y1, c1x, c1y, c2x, c2y, x2, y2 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		CubeTo(pt(c1x, c1y), pt(c2x, c2y), pt(x2, y2)).
+		Close()
 }
 
 // cubicCurveOpen builds an open path with a cubic Bezier curve (for stroking).
-func cubicCurveOpen(x1, y1, c1x, c1y, c2x, c2y, x2, y2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		cubeTo(yield, c1x, c1y, c2x, c2y, x2, y2)
-	}
+func cubicCurveOpen(x1, y1, c1x, c1y, c2x, c2y, x2, y2 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		CubeTo(pt(c1x, c1y), pt(c2x, c2y), pt(x2, y2))
 }
 
 // sCurveQuadratic builds a closed S-shaped path from two quadratic Bezier curves.
-func sCurveQuadratic(x1, y1, x2, y2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		midX := (x1 + x2) / 2
-		midY := (y1 + y2) / 2
+func sCurveQuadratic(x1, y1, x2, y2 float64) *path.Data {
+	midX := (x1 + x2) / 2
+	midY := (y1 + y2) / 2
 
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		// First quadratic curves up
-		if !quadTo(yield, (x1+midX)/2, y1-20, midX, midY) {
-			return
-		}
-		// Second quadratic curves down
-		if !quadTo(yield, (midX+x2)/2, y2+20, x2, y2) {
-			return
-		}
-		closePath(yield)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		QuadTo(pt((x1+midX)/2, y1-20), pt(midX, midY)). // First quadratic curves up
+		QuadTo(pt((midX+x2)/2, y2+20), pt(x2, y2)).     // Second quadratic curves down
+		Close()
 }
 
 // circle builds an approximate circle using four cubic Bezier curves.
-func circle(cx, cy, r float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		k := r * kappa
+func circle(cx, cy, r float64) *path.Data {
+	k := r * kappa
 
-		// start at right
-		if !moveTo(yield, cx+r, cy) {
-			return
-		}
-		// top-right quadrant
-		if !cubeTo(yield, cx+r, cy-k, cx+k, cy-r, cx, cy-r) {
-			return
-		}
-		// top-left quadrant
-		if !cubeTo(yield, cx-k, cy-r, cx-r, cy-k, cx-r, cy) {
-			return
-		}
-		// bottom-left quadrant
-		if !cubeTo(yield, cx-r, cy+k, cx-k, cy+r, cx, cy+r) {
-			return
-		}
-		// bottom-right quadrant
-		if !cubeTo(yield, cx+k, cy+r, cx+r, cy+k, cx+r, cy) {
-			return
-		}
-		closePath(yield)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(cx+r, cy)).                                   // start at right
+		CubeTo(pt(cx+r, cy-k), pt(cx+k, cy-r), pt(cx, cy-r)).   // top-right quadrant
+		CubeTo(pt(cx-k, cy-r), pt(cx-r, cy-k), pt(cx-r, cy)).   // top-left quadrant
+		CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r)).   // bottom-left quadrant
+		CubeTo(pt(cx+k, cy+r), pt(cx+r, cy+k), pt(cx+r, cy)).   // bottom-right quadrant
+		Close()
 }
 
 // ellipse builds an approximate ellipse using four cubic Bezier curves.
-func ellipse(cx, cy, rx, ry float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		kx := rx * kappa
-		ky := ry * kappa
+func ellipse(cx, cy, rx, ry float64) *path.Data {
+	kx := rx * kappa
+	ky := ry * kappa
 
-		// start at right
-		if !moveTo(yield, cx+rx, cy) {
-			return
-		}
-		// top-right quadrant
-		if !cubeTo(yield, cx+rx, cy-ky, cx+kx, cy-ry, cx, cy-ry) {
-			return
-		}
-		// top-left quadrant
-		if !cubeTo(yield, cx-kx, cy-ry, cx-rx, cy-ky, cx-rx, cy) {
-			return
-		}
-		// bottom-left quadrant
-		if !cubeTo(yield, cx-rx, cy+ky, cx-kx, cy+ry, cx, cy+ry) {
-			return
-		}
-		// bottom-right quadrant
-		if !cubeTo(yield, cx+kx, cy+ry, cx+rx, cy+ky, cx+rx, cy) {
-			return
-		}
-		closePath(yield)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(cx+rx, cy)).                                      // start at right
+		CubeTo(pt(cx+rx, cy-ky), pt(cx+kx, cy-ry), pt(cx, cy-ry)).  // top-right quadrant
+		CubeTo(pt(cx-kx, cy-ry), pt(cx-rx, cy-ky), pt(cx-rx, cy)).  // top-left quadrant
+		CubeTo(pt(cx-rx, cy+ky), pt(cx-kx, cy+ry), pt(cx, cy+ry)).  // bottom-left quadrant
+		CubeTo(pt(cx+kx, cy+ry), pt(cx+rx, cy+ky), pt(cx+rx, cy)).  // bottom-right quadrant
+		Close()
 }
 
 // arc builds a partial circle (pie slice) from startFraction to endFraction (0-1).
 // The arc goes from startFraction to endFraction of a full circle, starting from the right.
-func arc(cx, cy, r float64, startFraction, endFraction float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		k := r * kappa
+func arc(cx, cy, r float64, startFraction, endFraction float64) *path.Data {
+	k := r * kappa
 
-		// Calculate how many quadrants we need
-		totalFraction := endFraction - startFraction
-		if totalFraction <= 0 {
-			return
-		}
-
-		// For a 3/4 arc (0 to 0.75), we draw 3 quadrants
-		numQuadrants := int(totalFraction * 4)
-		if numQuadrants < 1 {
-			numQuadrants = 1
-		}
-		if numQuadrants > 4 {
-			numQuadrants = 4
-		}
-
-		// Start at center
-		if !moveTo(yield, cx, cy) {
-			return
-		}
-
-		// Line to start of arc (right side)
-		if !lineTo(yield, cx+r, cy) {
-			return
-		}
-
-		// Draw the quadrants
-		// top-right quadrant (first)
-		if numQuadrants >= 1 {
-			if !cubeTo(yield, cx+r, cy-k, cx+k, cy-r, cx, cy-r) {
-				return
-			}
-		}
-		// top-left quadrant (second)
-		if numQuadrants >= 2 {
-			if !cubeTo(yield, cx-k, cy-r, cx-r, cy-k, cx-r, cy) {
-				return
-			}
-		}
-		// bottom-left quadrant (third)
-		if numQuadrants >= 3 {
-			if !cubeTo(yield, cx-r, cy+k, cx-k, cy+r, cx, cy+r) {
-				return
-			}
-		}
-		// bottom-right quadrant (fourth)
-		if numQuadrants >= 4 {
-			if !cubeTo(yield, cx+k, cy+r, cx+r, cy+k, cx+r, cy) {
-				return
-			}
-		}
-
-		closePath(yield)
+	// Calculate how many quadrants we need
+	totalFraction := endFraction - startFraction
+	if totalFraction <= 0 {
+		return &path.Data{}
 	}
+
+	// For a 3/4 arc (0 to 0.75), we draw 3 quadrants
+	numQuadrants := int(totalFraction * 4)
+	if numQuadrants < 1 {
+		numQuadrants = 1
+	}
+	if numQuadrants > 4 {
+		numQuadrants = 4
+	}
+
+	// Start at center
+	p := (&path.Data{}).
+		MoveTo(pt(cx, cy)).
+		LineTo(pt(cx+r, cy)) // Line to start of arc (right side)
+
+	// Draw the quadrants
+	// top-right quadrant (first)
+	if numQuadrants >= 1 {
+		p = p.CubeTo(pt(cx+r, cy-k), pt(cx+k, cy-r), pt(cx, cy-r))
+	}
+	// top-left quadrant (second)
+	if numQuadrants >= 2 {
+		p = p.CubeTo(pt(cx-k, cy-r), pt(cx-r, cy-k), pt(cx-r, cy))
+	}
+	// bottom-left quadrant (third)
+	if numQuadrants >= 3 {
+		p = p.CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r))
+	}
+	// bottom-right quadrant (fourth)
+	if numQuadrants >= 4 {
+		p = p.CubeTo(pt(cx+k, cy+r), pt(cx+r, cy+k), pt(cx+r, cy))
+	}
+
+	return p.Close()
 }

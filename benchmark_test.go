@@ -36,7 +36,7 @@ func BenchmarkRasteriserO(b *testing.B) {
 
 			for b.Loop() {
 				r.Reset(clip)
-				r.FillEvenOdd(oPath, func(y, xMin int, coverage []float32) {
+				r.FillEvenOdd(oPath.Iter(), func(y, xMin int, coverage []float32) {
 					row := dst.Pix[y*dst.Stride+xMin:]
 					for i, c := range coverage {
 						row[i] = uint8(c * 255)
@@ -82,70 +82,39 @@ func BenchmarkVectorO(b *testing.B) {
 
 // makeOPath creates an "O" shape path for our rasterizer.
 // Outer circle is counter-clockwise, inner circle is clockwise.
-func makeOPath(cx, cy, outerR, innerR float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Outer circle (counter-clockwise)
-		addCircleToPath(yield, cx, cy, outerR, false)
-		// Inner circle (clockwise)
-		addCircleToPath(yield, cx, cy, innerR, true)
-	}
+func makeOPath(cx, cy, outerR, innerR float64) *path.Data {
+	p := &path.Data{}
+	// Outer circle (counter-clockwise)
+	addCircleToData(p, cx, cy, outerR, false)
+	// Inner circle (clockwise)
+	addCircleToData(p, cx, cy, innerR, true)
+	return p
 }
 
-// addCircleToPath adds a circle to a path using cubic Bézier curves.
-// Uses a stack-allocated buffer to avoid heap allocations.
-func addCircleToPath(yield func(path.Command, []vec.Vec2) bool, cx, cy, r float64, clockwise bool) {
+// addCircleToData adds a circle to a path.Data using cubic Bézier curves.
+func addCircleToData(p *path.Data, cx, cy, r float64, clockwise bool) {
 	// Magic number for circular arc approximation with cubic Bézier
 	const k = 0.5522847498
 	kr := k * r
 
-	var buf [3]vec.Vec2 // stack-allocated, reused for each yield
+	pt := func(x, y float64) vec.Vec2 { return vec.Vec2{X: x, Y: y} }
 
 	if clockwise {
 		// Start at top, go clockwise
-		buf[0] = vec.Vec2{X: cx, Y: cy - r}
-		if !yield(path.CmdMoveTo, buf[:1]) {
-			return
-		}
-		buf[0], buf[1], buf[2] = vec.Vec2{X: cx - kr, Y: cy - r}, vec.Vec2{X: cx - r, Y: cy - kr}, vec.Vec2{X: cx - r, Y: cy}
-		if !yield(path.CmdCubeTo, buf[:3]) {
-			return
-		}
-		buf[0], buf[1], buf[2] = vec.Vec2{X: cx - r, Y: cy + kr}, vec.Vec2{X: cx - kr, Y: cy + r}, vec.Vec2{X: cx, Y: cy + r}
-		if !yield(path.CmdCubeTo, buf[:3]) {
-			return
-		}
-		buf[0], buf[1], buf[2] = vec.Vec2{X: cx + kr, Y: cy + r}, vec.Vec2{X: cx + r, Y: cy + kr}, vec.Vec2{X: cx + r, Y: cy}
-		if !yield(path.CmdCubeTo, buf[:3]) {
-			return
-		}
-		buf[0], buf[1], buf[2] = vec.Vec2{X: cx + r, Y: cy - kr}, vec.Vec2{X: cx + kr, Y: cy - r}, vec.Vec2{X: cx, Y: cy - r}
-		if !yield(path.CmdCubeTo, buf[:3]) {
-			return
-		}
+		p.MoveTo(pt(cx, cy-r))
+		p.CubeTo(pt(cx-kr, cy-r), pt(cx-r, cy-kr), pt(cx-r, cy))
+		p.CubeTo(pt(cx-r, cy+kr), pt(cx-kr, cy+r), pt(cx, cy+r))
+		p.CubeTo(pt(cx+kr, cy+r), pt(cx+r, cy+kr), pt(cx+r, cy))
+		p.CubeTo(pt(cx+r, cy-kr), pt(cx+kr, cy-r), pt(cx, cy-r))
 	} else {
 		// Start at top, go counter-clockwise
-		buf[0] = vec.Vec2{X: cx, Y: cy - r}
-		if !yield(path.CmdMoveTo, buf[:1]) {
-			return
-		}
-		buf[0], buf[1], buf[2] = vec.Vec2{X: cx + kr, Y: cy - r}, vec.Vec2{X: cx + r, Y: cy - kr}, vec.Vec2{X: cx + r, Y: cy}
-		if !yield(path.CmdCubeTo, buf[:3]) {
-			return
-		}
-		buf[0], buf[1], buf[2] = vec.Vec2{X: cx + r, Y: cy + kr}, vec.Vec2{X: cx + kr, Y: cy + r}, vec.Vec2{X: cx, Y: cy + r}
-		if !yield(path.CmdCubeTo, buf[:3]) {
-			return
-		}
-		buf[0], buf[1], buf[2] = vec.Vec2{X: cx - kr, Y: cy + r}, vec.Vec2{X: cx - r, Y: cy + kr}, vec.Vec2{X: cx - r, Y: cy}
-		if !yield(path.CmdCubeTo, buf[:3]) {
-			return
-		}
-		buf[0], buf[1], buf[2] = vec.Vec2{X: cx - r, Y: cy - kr}, vec.Vec2{X: cx - kr, Y: cy - r}, vec.Vec2{X: cx, Y: cy - r}
-		if !yield(path.CmdCubeTo, buf[:3]) {
-			return
-		}
+		p.MoveTo(pt(cx, cy-r))
+		p.CubeTo(pt(cx+kr, cy-r), pt(cx+r, cy-kr), pt(cx+r, cy))
+		p.CubeTo(pt(cx+r, cy+kr), pt(cx+kr, cy+r), pt(cx, cy+r))
+		p.CubeTo(pt(cx-kr, cy+r), pt(cx-r, cy+kr), pt(cx-r, cy))
+		p.CubeTo(pt(cx-r, cy-kr), pt(cx-kr, cy-r), pt(cx, cy-r))
 	}
-	yield(path.CmdClose, nil)
+	p.Close()
 }
 
 // addCircleToVector adds a circle to a vector.Rasterizer using cubic Bézier curves.

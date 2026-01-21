@@ -18,7 +18,6 @@ package testcases
 
 import (
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/pdf/graphics"
 )
 
@@ -102,125 +101,86 @@ var precisionCases = []TestCase{
 }
 
 // offsetRectangle builds a rectangular path with a subpixel offset applied to all coordinates.
-func offsetRectangle(x1, y1, w, h, offset float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		ox1 := x1 + offset
-		oy1 := y1 + offset
-		ox2 := x1 + w + offset
-		oy2 := y1 + h + offset
+func offsetRectangle(x1, y1, w, h, offset float64) *path.Data {
+	ox1 := x1 + offset
+	oy1 := y1 + offset
+	ox2 := x1 + w + offset
+	oy2 := y1 + h + offset
 
-		if !moveTo(yield, ox1, oy1) {
-			return
-		}
-		if !lineTo(yield, ox2, oy1) {
-			return
-		}
-		if !lineTo(yield, ox2, oy2) {
-			return
-		}
-		if !lineTo(yield, ox1, oy2) {
-			return
-		}
-		closePath(yield)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(ox1, oy1)).
+		LineTo(pt(ox2, oy1)).
+		LineTo(pt(ox2, oy2)).
+		LineTo(pt(ox1, oy2)).
+		Close()
 }
 
 // horizontalLineAt builds a horizontal line segment at a specific y position.
-func horizontalLineAt(x1, y, x2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y) {
-			return
-		}
-		lineTo(yield, x2, y)
-	}
+func horizontalLineAt(x1, y, x2 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y)).
+		LineTo(pt(x2, y))
 }
 
 // largeOffsetRectangle builds a rectangle centered at large coordinates,
 // but translated back to fit the canvas. This tests precision at large offsets.
-func largeOffsetRectangle(cx, cy, size float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Translate the large coordinates back to canvas center (32, 32)
-		// The shape is computed at (cx, cy) then shifted to canvas
-		translateX := 32 - cx
-		translateY := 32 - cy
+func largeOffsetRectangle(cx, cy, size float64) *path.Data {
+	// Translate the large coordinates back to canvas center (32, 32)
+	// The shape is computed at (cx, cy) then shifted to canvas
+	translateX := 32 - cx
+	translateY := 32 - cy
 
-		x1 := cx - size/2 + translateX
-		y1 := cy - size/2 + translateY
-		x2 := cx + size/2 + translateX
-		y2 := cy + size/2 + translateY
+	x1 := cx - size/2 + translateX
+	y1 := cy - size/2 + translateY
+	x2 := cx + size/2 + translateX
+	y2 := cy + size/2 + translateY
 
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		if !lineTo(yield, x1, y2) {
-			return
-		}
-		closePath(yield)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x1, y2)).
+		Close()
 }
 
 // smallShapeAtLargeOffset builds a tiny shape at a large offset,
 // translated back to the canvas for rendering.
-func smallShapeAtLargeOffset(cx, cy, size float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// The shape is logically at (cx, cy) but we translate it to canvas
-		translateX := 32 - cx
-		translateY := 32 - cy
+func smallShapeAtLargeOffset(cx, cy, size float64) *path.Data {
+	// The shape is logically at (cx, cy) but we translate it to canvas
+	translateX := 32 - cx
+	translateY := 32 - cy
 
-		x1 := cx - size/2 + translateX
-		y1 := cy - size/2 + translateY
-		x2 := cx + size/2 + translateX
-		y2 := cy + size/2 + translateY
+	x1 := cx - size/2 + translateX
+	y1 := cy - size/2 + translateY
+	x2 := cx + size/2 + translateX
+	y2 := cy + size/2 + translateY
 
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		if !lineTo(yield, x1, y2) {
-			return
-		}
-		closePath(yield)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x1, y2)).
+		Close()
 }
 
 // float64PrecisionShape builds a shape using coordinates that require
 // full float64 precision to represent accurately.
-func float64PrecisionShape() path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Use coordinates with many significant digits
-		// These values differ only in the low bits of float64
-		base := 32.0
-		delta1 := 0.123456789012345
-		delta2 := 0.123456789012346
+func float64PrecisionShape() *path.Data {
+	// Use coordinates with many significant digits
+	// These values differ only in the low bits of float64
+	base := 32.0
+	delta1 := 0.123456789012345
+	delta2 := 0.123456789012346
 
-		x1 := base - 10 + delta1
-		y1 := base - 10 + delta1
-		x2 := base + 10 + delta2
-		y2 := base + 10 + delta2
+	x1 := base - 10 + delta1
+	y1 := base - 10 + delta1
+	x2 := base + 10 + delta2
+	y2 := base + 10 + delta2
 
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		if !lineTo(yield, x1, y2) {
-			return
-		}
-		closePath(yield)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x1, y2)).
+		Close()
 }

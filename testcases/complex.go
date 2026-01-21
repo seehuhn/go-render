@@ -20,7 +20,6 @@ import (
 	"math"
 
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/pdf/graphics"
 )
 
@@ -105,236 +104,148 @@ var complexCases = []TestCase{
 }
 
 // mixedLinesCurves builds a path combining line segments and Bezier curves.
-func mixedLinesCurves() path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Start with a line segment
-		if !moveTo(yield, 10, 50) {
-			return
-		}
-		if !lineTo(yield, 20, 30) {
-			return
-		}
-		// Quadratic curve
-		if !quadTo(yield, 32, 10, 44, 30) {
-			return
-		}
-		// Line segment
-		if !lineTo(yield, 54, 50) {
-			return
-		}
-		// Cubic curve back to start area
-		if !cubeTo(yield, 48, 60, 16, 60, 10, 50) {
-			return
-		}
-		closePath(yield)
-	}
+func mixedLinesCurves() *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(10, 50)).
+		LineTo(pt(20, 30)).                             // Line segment
+		QuadTo(pt(32, 10), pt(44, 30)).                 // Quadratic curve
+		LineTo(pt(54, 50)).                             // Line segment
+		CubeTo(pt(48, 60), pt(16, 60), pt(10, 50)).     // Cubic curve back to start area
+		Close()
 }
 
 // glyphLikeShape builds a complex shape similar to a typographic glyph.
 // This resembles a simplified lowercase 'a' or 'e' character.
-func glyphLikeShape() path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		const kappa = 0.5522847498307936
+func glyphLikeShape() *path.Data {
+	const kappa = 0.5522847498307936
 
-		// Outer bowl (circular shape)
-		cx, cy := 32.0, 38.0
-		r := 18.0
-		k := r * kappa
+	// Outer bowl (circular shape)
+	cx, cy := 32.0, 38.0
+	r := 18.0
+	k := r * kappa
 
-		// Start at right of bowl
-		if !moveTo(yield, cx+r, cy) {
-			return
-		}
-		// Top-right quadrant
-		if !cubeTo(yield, cx+r, cy-k, cx+k, cy-r, cx, cy-r) {
-			return
-		}
-		// Top-left quadrant
-		if !cubeTo(yield, cx-k, cy-r, cx-r, cy-k, cx-r, cy) {
-			return
-		}
-		// Bottom-left quadrant
-		if !cubeTo(yield, cx-r, cy+k, cx-k, cy+r, cx, cy+r) {
-			return
-		}
-		// Bottom-right quadrant
-		if !cubeTo(yield, cx+k, cy+r, cx+r, cy+k, cx+r, cy) {
-			return
-		}
-		// Stem going up
-		if !lineTo(yield, cx+r, 10) {
-			return
-		}
-		// Across top
-		if !lineTo(yield, cx+r-6, 10) {
-			return
-		}
-		// Down to bowl
-		if !lineTo(yield, cx+r-6, cy) {
-			return
-		}
+	// Start at right of bowl
+	p := (&path.Data{}).
+		MoveTo(pt(cx+r, cy)).
+		CubeTo(pt(cx+r, cy-k), pt(cx+k, cy-r), pt(cx, cy-r)).   // Top-right quadrant
+		CubeTo(pt(cx-k, cy-r), pt(cx-r, cy-k), pt(cx-r, cy)).   // Top-left quadrant
+		CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r)).   // Bottom-left quadrant
+		CubeTo(pt(cx+k, cy+r), pt(cx+r, cy+k), pt(cx+r, cy)).   // Bottom-right quadrant
+		LineTo(pt(cx+r, 10)).     // Stem going up
+		LineTo(pt(cx+r-6, 10)).   // Across top
+		LineTo(pt(cx+r-6, cy))    // Down to bowl
 
-		// Inner counter (hole in the bowl)
-		ir := 8.0
-		ik := ir * kappa
+	// Inner counter (hole in the bowl)
+	ir := 8.0
+	ik := ir * kappa
 
-		// Line to start of inner circle (moving inward)
-		if !lineTo(yield, cx+ir, cy) {
-			return
-		}
+	// Line to start of inner circle (moving inward)
+	p = p.LineTo(pt(cx+ir, cy)).
 		// Draw inner circle counter-clockwise (reverse winding for hole)
-		if !cubeTo(yield, cx+ir, cy+ik, cx+ik, cy+ir, cx, cy+ir) {
-			return
-		}
-		if !cubeTo(yield, cx-ik, cy+ir, cx-ir, cy+ik, cx-ir, cy) {
-			return
-		}
-		if !cubeTo(yield, cx-ir, cy-ik, cx-ik, cy-ir, cx, cy-ir) {
-			return
-		}
-		if !cubeTo(yield, cx+ik, cy-ir, cx+ir, cy-ik, cx+ir, cy) {
-			return
-		}
+		CubeTo(pt(cx+ir, cy+ik), pt(cx+ik, cy+ir), pt(cx, cy+ir)).
+		CubeTo(pt(cx-ik, cy+ir), pt(cx-ir, cy+ik), pt(cx-ir, cy)).
+		CubeTo(pt(cx-ir, cy-ik), pt(cx-ik, cy-ir), pt(cx, cy-ir)).
+		CubeTo(pt(cx+ik, cy-ir), pt(cx+ir, cy-ik), pt(cx+ir, cy)).
+		Close()
 
-		closePath(yield)
-	}
+	return p
 }
 
 // spiralPath builds an Archimedean spiral that overlaps itself.
-func spiralPath(cx, cy, rMin, rMax float64, turns float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		steps := int(turns * 32) // 32 segments per turn
-		if steps < 8 {
-			steps = 8
-		}
-
-		totalAngle := turns * 2 * math.Pi
-		rGrowth := (rMax - rMin) / totalAngle
-
-		// Start point
-		startX := cx + rMin
-		startY := cy
-		if !moveTo(yield, startX, startY) {
-			return
-		}
-
-		// Draw spiral with line segments
-		for i := 1; i <= steps; i++ {
-			t := float64(i) / float64(steps)
-			angle := t * totalAngle
-			r := rMin + rGrowth*angle
-
-			x := cx + r*math.Cos(angle)
-			y := cy + r*math.Sin(angle)
-
-			if !lineTo(yield, x, y) {
-				return
-			}
-		}
+func spiralPath(cx, cy, rMin, rMax float64, turns float64) *path.Data {
+	steps := int(turns * 32) // 32 segments per turn
+	if steps < 8 {
+		steps = 8
 	}
+
+	totalAngle := turns * 2 * math.Pi
+	rGrowth := (rMax - rMin) / totalAngle
+
+	// Start point
+	startX := cx + rMin
+	startY := cy
+	p := (&path.Data{}).MoveTo(pt(startX, startY))
+
+	// Draw spiral with line segments
+	for i := 1; i <= steps; i++ {
+		t := float64(i) / float64(steps)
+		angle := t * totalAngle
+		r := rMin + rGrowth*angle
+
+		x := cx + r*math.Cos(angle)
+		y := cy + r*math.Sin(angle)
+
+		p = p.LineTo(pt(x, y))
+	}
+
+	return p
 }
 
 // figureEightStroke builds a figure-eight (lemniscate-like) path for stroke testing.
-func figureEightStroke(cx, cy, size float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Using two circular arcs to form a figure-eight
-		const kappa = 0.5522847498307936
-		r := size / 2
-		k := r * kappa
+func figureEightStroke(cx, cy, size float64) *path.Data {
+	// Using two circular arcs to form a figure-eight
+	const kappa = 0.5522847498307936
+	r := size / 2
+	k := r * kappa
 
-		// Top circle center
-		topCy := cy - r/2
+	// Top circle center
+	topCy := cy - r/2
 
-		// Start at center crossing point
-		if !moveTo(yield, cx, cy) {
-			return
-		}
-
+	// Start at center crossing point
+	p := (&path.Data{}).
+		MoveTo(pt(cx, cy)).
 		// Upper loop (clockwise)
-		if !cubeTo(yield, cx+k, cy-r/4, cx+r, topCy-k/2, cx+r, topCy) {
-			return
-		}
-		if !cubeTo(yield, cx+r, topCy-k, cx+k, topCy-r, cx, topCy-r) {
-			return
-		}
-		if !cubeTo(yield, cx-k, topCy-r, cx-r, topCy-k, cx-r, topCy) {
-			return
-		}
-		if !cubeTo(yield, cx-r, topCy+k/2, cx-k, cy-r/4, cx, cy) {
-			return
-		}
+		CubeTo(pt(cx+k, cy-r/4), pt(cx+r, topCy-k/2), pt(cx+r, topCy)).
+		CubeTo(pt(cx+r, topCy-k), pt(cx+k, topCy-r), pt(cx, topCy-r)).
+		CubeTo(pt(cx-k, topCy-r), pt(cx-r, topCy-k), pt(cx-r, topCy)).
+		CubeTo(pt(cx-r, topCy+k/2), pt(cx-k, cy-r/4), pt(cx, cy))
 
-		// Bottom circle center
-		botCy := cy + r/2
+	// Bottom circle center
+	botCy := cy + r/2
 
-		// Lower loop (counter-clockwise to cross)
-		if !cubeTo(yield, cx-k, cy+r/4, cx-r, botCy-k/2, cx-r, botCy) {
-			return
-		}
-		if !cubeTo(yield, cx-r, botCy+k, cx-k, botCy+r, cx, botCy+r) {
-			return
-		}
-		if !cubeTo(yield, cx+k, botCy+r, cx+r, botCy+k, cx+r, botCy) {
-			return
-		}
-		if !cubeTo(yield, cx+r, botCy-k/2, cx+k, cy+r/4, cx, cy) {
-			return
-		}
-	}
+	// Lower loop (counter-clockwise to cross)
+	p = p.
+		CubeTo(pt(cx-k, cy+r/4), pt(cx-r, botCy-k/2), pt(cx-r, botCy)).
+		CubeTo(pt(cx-r, botCy+k), pt(cx-k, botCy+r), pt(cx, botCy+r)).
+		CubeTo(pt(cx+k, botCy+r), pt(cx+r, botCy+k), pt(cx+r, botCy)).
+		CubeTo(pt(cx+r, botCy-k/2), pt(cx+k, cy+r/4), pt(cx, cy))
+
+	return p
 }
 
 // tightCurve builds a U-shaped curve where the inner radius is small
 // relative to stroke width, causing the inner edge to cross.
-func tightCurve(cx, cy, size float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		const kappa = 0.5522847498307936
-		r := size
-		k := r * kappa
+func tightCurve(cx, cy, size float64) *path.Data {
+	const kappa = 0.5522847498307936
+	r := size
+	k := r * kappa
 
-		// Start at left
-		if !moveTo(yield, cx-r, cy-size) {
-			return
-		}
-		// Down to curve start
-		if !lineTo(yield, cx-r, cy) {
-			return
-		}
-		// Tight U-turn using cubic curves
-		if !cubeTo(yield, cx-r, cy+k, cx-k, cy+r, cx, cy+r) {
-			return
-		}
-		if !cubeTo(yield, cx+k, cy+r, cx+r, cy+k, cx+r, cy) {
-			return
-		}
-		// Up to end
-		if !lineTo(yield, cx+r, cy-size) {
-			return
-		}
-	}
+	return (&path.Data{}).
+		MoveTo(pt(cx-r, cy-size)).
+		LineTo(pt(cx-r, cy)).                                   // Down to curve start
+		CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r)).   // Tight U-turn using cubic curves
+		CubeTo(pt(cx+k, cy+r), pt(cx+r, cy+k), pt(cx+r, cy)).
+		LineTo(pt(cx+r, cy-size))                               // Up to end
 }
 
 // zigzagPath builds a zigzag pattern where adjacent thick strokes overlap.
-func zigzagPath(x1, cy, x2, amplitude float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		segments := 5
-		width := x2 - x1
-		segWidth := width / float64(segments)
+func zigzagPath(x1, cy, x2, amplitude float64) *path.Data {
+	segments := 5
+	width := x2 - x1
+	segWidth := width / float64(segments)
 
-		if !moveTo(yield, x1, cy) {
-			return
-		}
+	p := (&path.Data{}).MoveTo(pt(x1, cy))
 
-		for i := 1; i <= segments; i++ {
-			x := x1 + float64(i)*segWidth
-			var y float64
-			if i%2 == 1 {
-				y = cy - amplitude
-			} else {
-				y = cy + amplitude
-			}
-			if !lineTo(yield, x, y) {
-				return
-			}
+	for i := 1; i <= segments; i++ {
+		x := x1 + float64(i)*segWidth
+		var y float64
+		if i%2 == 1 {
+			y = cy - amplitude
+		} else {
+			y = cy + amplitude
 		}
+		p = p.LineTo(pt(x, y))
 	}
+
+	return p
 }

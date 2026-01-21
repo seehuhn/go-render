@@ -20,7 +20,6 @@ import (
 	"math"
 
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/vec"
 )
 
 var fillCases = []TestCase{
@@ -222,288 +221,158 @@ var fillCases = []TestCase{
 }
 
 // triangle builds a triangular path.
-func triangle(x1, y1, x2, y2, x3, y3 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		if !lineTo(yield, x3, y3) {
-			return
-		}
-		closePath(yield)
-	}
+func triangle(x1, y1, x2, y2, x3, y3 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x3, y3)).
+		Close()
 }
 
 // fivePointStar builds a five-pointed star (self-intersecting).
-func fivePointStar(cx, cy, r float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// five points, connecting every second point
-		var pts [5]vec.Vec2
-		for i := range 5 {
-			angle := float64(i)*2*math.Pi/5 - math.Pi/2
-			pts[i] = vec.Vec2{
-				X: cx + r*math.Cos(angle),
-				Y: cy + r*math.Sin(angle),
-			}
-		}
-
-		// draw star: 0 -> 2 -> 4 -> 1 -> 3 -> 0
-		order := [5]int{0, 2, 4, 1, 3}
-		if !moveTo(yield, pts[order[0]].X, pts[order[0]].Y) {
-			return
-		}
-		for _, i := range order[1:] {
-			if !lineTo(yield, pts[i].X, pts[i].Y) {
-				return
-			}
-		}
-		closePath(yield)
+func fivePointStar(cx, cy, r float64) *path.Data {
+	// five points, connecting every second point
+	var pts [5]struct{ x, y float64 }
+	for i := range 5 {
+		angle := float64(i)*2*math.Pi/5 - math.Pi/2
+		pts[i].x = cx + r*math.Cos(angle)
+		pts[i].y = cy + r*math.Sin(angle)
 	}
+
+	// draw star: 0 -> 2 -> 4 -> 1 -> 3 -> 0
+	order := [5]int{0, 2, 4, 1, 3}
+	p := (&path.Data{}).MoveTo(pt(pts[order[0]].x, pts[order[0]].y))
+	for _, i := range order[1:] {
+		p = p.LineTo(pt(pts[i].x, pts[i].y))
+	}
+	return p.Close()
 }
 
 // rectangle builds a rectangular path.
-func rectangle(x1, y1, x2, y2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		if !lineTo(yield, x1, y2) {
-			return
-		}
-		closePath(yield)
-	}
+func rectangle(x1, y1, x2, y2 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x1, y2)).
+		Close()
 }
 
 // concentricRectangles builds two nested rectangles (outer clockwise, inner counter-clockwise).
-func concentricRectangles(cx, cy, outerSize, innerSize float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Outer rectangle (clockwise)
-		if !moveTo(yield, cx-outerSize, cy-outerSize) {
-			return
-		}
-		if !lineTo(yield, cx+outerSize, cy-outerSize) {
-			return
-		}
-		if !lineTo(yield, cx+outerSize, cy+outerSize) {
-			return
-		}
-		if !lineTo(yield, cx-outerSize, cy+outerSize) {
-			return
-		}
-		if !closePath(yield) {
-			return
-		}
+func concentricRectangles(cx, cy, outerSize, innerSize float64) *path.Data {
+	// Outer rectangle (clockwise)
+	p := (&path.Data{}).
+		MoveTo(pt(cx-outerSize, cy-outerSize)).
+		LineTo(pt(cx+outerSize, cy-outerSize)).
+		LineTo(pt(cx+outerSize, cy+outerSize)).
+		LineTo(pt(cx-outerSize, cy+outerSize)).
+		Close()
 
-		// Inner rectangle (counter-clockwise for hole)
-		if !moveTo(yield, cx-innerSize, cy-innerSize) {
-			return
-		}
-		if !lineTo(yield, cx-innerSize, cy+innerSize) {
-			return
-		}
-		if !lineTo(yield, cx+innerSize, cy+innerSize) {
-			return
-		}
-		if !lineTo(yield, cx+innerSize, cy-innerSize) {
-			return
-		}
-		closePath(yield)
-	}
+	// Inner rectangle (counter-clockwise for hole)
+	return p.
+		MoveTo(pt(cx-innerSize, cy-innerSize)).
+		LineTo(pt(cx-innerSize, cy+innerSize)).
+		LineTo(pt(cx+innerSize, cy+innerSize)).
+		LineTo(pt(cx+innerSize, cy-innerSize)).
+		Close()
 }
 
 // overlappingCircles builds two overlapping circles using cubic Bezier approximation.
-func overlappingCircles(cx1, cy1 float64, cx2, cy2 float64, r float64) path.Path {
+func overlappingCircles(cx1, cy1 float64, cx2, cy2 float64, r float64) *path.Data {
 	const kappa = 0.5522847498307936
 
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// First circle
-		k := r * kappa
-		if !moveTo(yield, cx1+r, cy1) {
-			return
-		}
-		if !cubeTo(yield, cx1+r, cy1-k, cx1+k, cy1-r, cx1, cy1-r) {
-			return
-		}
-		if !cubeTo(yield, cx1-k, cy1-r, cx1-r, cy1-k, cx1-r, cy1) {
-			return
-		}
-		if !cubeTo(yield, cx1-r, cy1+k, cx1-k, cy1+r, cx1, cy1+r) {
-			return
-		}
-		if !cubeTo(yield, cx1+k, cy1+r, cx1+r, cy1+k, cx1+r, cy1) {
-			return
-		}
-		if !closePath(yield) {
-			return
-		}
+	// First circle
+	k := r * kappa
+	p := (&path.Data{}).
+		MoveTo(pt(cx1+r, cy1)).
+		CubeTo(pt(cx1+r, cy1-k), pt(cx1+k, cy1-r), pt(cx1, cy1-r)).
+		CubeTo(pt(cx1-k, cy1-r), pt(cx1-r, cy1-k), pt(cx1-r, cy1)).
+		CubeTo(pt(cx1-r, cy1+k), pt(cx1-k, cy1+r), pt(cx1, cy1+r)).
+		CubeTo(pt(cx1+k, cy1+r), pt(cx1+r, cy1+k), pt(cx1+r, cy1)).
+		Close()
 
-		// Second circle
-		if !moveTo(yield, cx2+r, cy2) {
-			return
-		}
-		if !cubeTo(yield, cx2+r, cy2-k, cx2+k, cy2-r, cx2, cy2-r) {
-			return
-		}
-		if !cubeTo(yield, cx2-k, cy2-r, cx2-r, cy2-k, cx2-r, cy2) {
-			return
-		}
-		if !cubeTo(yield, cx2-r, cy2+k, cx2-k, cy2+r, cx2, cy2+r) {
-			return
-		}
-		if !cubeTo(yield, cx2+k, cy2+r, cx2+r, cy2+k, cx2+r, cy2) {
-			return
-		}
-		closePath(yield)
-	}
+	// Second circle
+	return p.
+		MoveTo(pt(cx2+r, cy2)).
+		CubeTo(pt(cx2+r, cy2-k), pt(cx2+k, cy2-r), pt(cx2, cy2-r)).
+		CubeTo(pt(cx2-k, cy2-r), pt(cx2-r, cy2-k), pt(cx2-r, cy2)).
+		CubeTo(pt(cx2-r, cy2+k), pt(cx2-k, cy2+r), pt(cx2, cy2+r)).
+		CubeTo(pt(cx2+k, cy2+r), pt(cx2+r, cy2+k), pt(cx2+r, cy2)).
+		Close()
 }
 
 // figureEight builds a self-crossing figure-eight shape.
-func figureEight(cx, cy, width, height float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Start at top-left, cross through center
-		if !moveTo(yield, cx-width, cy-height) {
-			return
-		}
-		// Go to bottom-right
-		if !lineTo(yield, cx+width, cy+height) {
-			return
-		}
-		// Go to top-right
-		if !lineTo(yield, cx+width, cy-height) {
-			return
-		}
-		// Go to bottom-left (crossing the first line)
-		if !lineTo(yield, cx-width, cy+height) {
-			return
-		}
-		closePath(yield)
-	}
+func figureEight(cx, cy, width, height float64) *path.Data {
+	// Start at top-left, cross through center
+	return (&path.Data{}).
+		MoveTo(pt(cx-width, cy-height)).
+		LineTo(pt(cx+width, cy+height)). // Go to bottom-right
+		LineTo(pt(cx+width, cy-height)). // Go to top-right
+		LineTo(pt(cx-width, cy+height)). // Go to bottom-left (crossing the first line)
+		Close()
 }
 
 // highWindingRect builds a rectangle wound multiple times in the same direction.
-func highWindingRect(cx, cy, size float64, windings int) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		for i := 0; i < windings; i++ {
-			if !moveTo(yield, cx-size, cy-size) {
-				return
-			}
-			if !lineTo(yield, cx+size, cy-size) {
-				return
-			}
-			if !lineTo(yield, cx+size, cy+size) {
-				return
-			}
-			if !lineTo(yield, cx-size, cy+size) {
-				return
-			}
-			if !closePath(yield) {
-				return
-			}
-		}
+func highWindingRect(cx, cy, size float64, windings int) *path.Data {
+	p := &path.Data{}
+	for i := 0; i < windings; i++ {
+		p = p.
+			MoveTo(pt(cx-size, cy-size)).
+			LineTo(pt(cx+size, cy-size)).
+			LineTo(pt(cx+size, cy+size)).
+			LineTo(pt(cx-size, cy+size)).
+			Close()
 	}
+	return p
 }
 
 // alternatingWinding builds a clockwise outer rectangle with a clockwise inner rectangle.
-func alternatingWinding(cx, cy, outerSize, innerSize float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// Outer rectangle (counter-clockwise)
-		if !moveTo(yield, cx-outerSize, cy-outerSize) {
-			return
-		}
-		if !lineTo(yield, cx-outerSize, cy+outerSize) {
-			return
-		}
-		if !lineTo(yield, cx+outerSize, cy+outerSize) {
-			return
-		}
-		if !lineTo(yield, cx+outerSize, cy-outerSize) {
-			return
-		}
-		if !closePath(yield) {
-			return
-		}
+func alternatingWinding(cx, cy, outerSize, innerSize float64) *path.Data {
+	// Outer rectangle (counter-clockwise)
+	p := (&path.Data{}).
+		MoveTo(pt(cx-outerSize, cy-outerSize)).
+		LineTo(pt(cx-outerSize, cy+outerSize)).
+		LineTo(pt(cx+outerSize, cy+outerSize)).
+		LineTo(pt(cx+outerSize, cy-outerSize)).
+		Close()
 
-		// Inner rectangle (clockwise - same direction conceptually)
-		if !moveTo(yield, cx-innerSize, cy-innerSize) {
-			return
-		}
-		if !lineTo(yield, cx+innerSize, cy-innerSize) {
-			return
-		}
-		if !lineTo(yield, cx+innerSize, cy+innerSize) {
-			return
-		}
-		if !lineTo(yield, cx-innerSize, cy+innerSize) {
-			return
-		}
-		closePath(yield)
-	}
+	// Inner rectangle (clockwise - same direction conceptually)
+	return p.
+		MoveTo(pt(cx-innerSize, cy-innerSize)).
+		LineTo(pt(cx+innerSize, cy-innerSize)).
+		LineTo(pt(cx+innerSize, cy+innerSize)).
+		LineTo(pt(cx-innerSize, cy+innerSize)).
+		Close()
 }
 
 // diamond builds a diamond shape (45 degree rotated square).
-func diamond(cx, cy, size float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, cx, cy-size) {
-			return
-		}
-		if !lineTo(yield, cx+size, cy) {
-			return
-		}
-		if !lineTo(yield, cx, cy+size) {
-			return
-		}
-		if !lineTo(yield, cx-size, cy) {
-			return
-		}
-		closePath(yield)
-	}
+func diamond(cx, cy, size float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(cx, cy-size)).
+		LineTo(pt(cx+size, cy)).
+		LineTo(pt(cx, cy+size)).
+		LineTo(pt(cx-size, cy)).
+		Close()
 }
 
 // nearHorizontalQuad builds a quadrilateral with near-horizontal top/bottom edges.
-func nearHorizontalQuad(x1, y1, x2, y2 float64) path.Path {
+func nearHorizontalQuad(x1, y1, x2, y2 float64) *path.Data {
 	height := 10.0
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		if !lineTo(yield, x2, y2+height) {
-			return
-		}
-		if !lineTo(yield, x1, y1+height) {
-			return
-		}
-		closePath(yield)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x2, y2+height)).
+		LineTo(pt(x1, y1+height)).
+		Close()
 }
 
 // nearVerticalQuad builds a quadrilateral with near-vertical left/right edges.
-func nearVerticalQuad(x1, y1, x2, y2 float64) path.Path {
+func nearVerticalQuad(x1, y1, x2, y2 float64) *path.Data {
 	width := 10.0
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x1+width, y1) {
-			return
-		}
-		if !lineTo(yield, x2+width, y2) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		closePath(yield)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x1+width, y1)).
+		LineTo(pt(x2+width, y2)).
+		LineTo(pt(x2, y2)).
+		Close()
 }

@@ -20,7 +20,6 @@ import (
 	"math"
 
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/pdf/graphics"
 )
 
@@ -1073,94 +1072,70 @@ var strokeCases = []TestCase{
 }
 
 // horizontalLine builds a horizontal line segment.
-func horizontalLine(x1, y, x2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y) {
-			return
-		}
-		lineTo(yield, x2, y)
-	}
+func horizontalLine(x1, y, x2 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y)).
+		LineTo(pt(x2, y))
 }
 
 // corner builds a path with two line segments meeting at a corner.
-func corner(x1, y1, x2, y2, x3, y3 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		lineTo(yield, x3, y3)
-	}
+func corner(x1, y1, x2, y2, x3, y3 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x3, y3))
 }
 
 // verticalLine builds a vertical line segment.
-func verticalLine(x, y1, y2 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x, y1) {
-			return
-		}
-		lineTo(yield, x, y2)
-	}
+func verticalLine(x, y1, y2 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x, y1)).
+		LineTo(pt(x, y2))
 }
 
 // diagonalLine builds a diagonal line at a given angle (in degrees) from center.
 // The line extends length/2 in each direction from the center point.
-func diagonalLine(cx, cy, angleDeg, length float64) path.Path {
+func diagonalLine(cx, cy, angleDeg, length float64) *path.Data {
 	angleRad := angleDeg * math.Pi / 180
 	dx := math.Cos(angleRad) * length / 2
 	dy := math.Sin(angleRad) * length / 2
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, cx-dx, cy-dy) {
-			return
-		}
-		lineTo(yield, cx+dx, cy+dy)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(cx-dx, cy-dy)).
+		LineTo(pt(cx+dx, cy+dy))
 }
 
 // zeroLengthClosedPath builds a single-point closed path (MoveTo + Close).
 // Per PDF spec, this is a degenerate subpath that should produce a filled
 // circle with round caps.
-func zeroLengthClosedPath(x, y float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x, y) {
-			return
-		}
-		closePath(yield)
-	}
+func zeroLengthClosedPath(x, y float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x, y)).
+		Close()
 }
 
 // zeroLengthLinePath builds a path with two points at the same coordinates
 // (MoveTo + LineTo to same point). Per PDF spec, this is a degenerate subpath
 // that should produce a filled circle with round caps.
-func zeroLengthLinePath(x, y float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x, y) {
-			return
-		}
-		lineTo(yield, x, y)
-	}
+func zeroLengthLinePath(x, y float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x, y)).
+		LineTo(pt(x, y))
 }
 
 // trailingMoveToPath builds a single-point open subpath (just a MoveTo).
 // Per PDF spec: "A single-point open subpath (specified by a trailing m operator)
 // shall produce no output."
-func trailingMoveToPath(x, y float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		moveTo(yield, x, y)
-	}
+func trailingMoveToPath(x, y float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x, y))
 }
 
 // cornerAtAngle builds a corner at a specified angle (in degrees).
 // The corner is centered at (cx, cy) with arms of the given length.
 // The angle is the interior angle between the two line segments.
-func cornerAtAngle(cx, cy, angleDeg, armLength float64) path.Path {
+func cornerAtAngle(cx, cy, angleDeg, armLength float64) *path.Data {
 	// First segment comes from the left horizontally
 	// Second segment goes at the specified angle
-	halfAngle := (180 - angleDeg) / 2 * math.Pi / 180
-
-	// Start point (coming from the left)
 	x1 := cx - armLength
 	y1 := cy
 
@@ -1168,73 +1143,52 @@ func cornerAtAngle(cx, cy, angleDeg, armLength float64) path.Path {
 	x3 := cx + armLength*math.Cos(math.Pi-angleDeg*math.Pi/180)
 	y3 := cy + armLength*math.Sin(math.Pi-angleDeg*math.Pi/180)
 
-	_ = halfAngle // not needed with this approach
-
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, cx, cy) {
-			return
-		}
-		lineTo(yield, x3, y3)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(cx, cy)).
+		LineTo(pt(x3, y3))
 }
 
 // leftTurnCorner builds a corner that turns left (counter-clockwise).
-func leftTurnCorner(cx, cy, armLength float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, cx-armLength, cy) {
-			return
-		}
-		if !lineTo(yield, cx, cy) {
-			return
-		}
-		lineTo(yield, cx, cy-armLength)
-	}
+func leftTurnCorner(cx, cy, armLength float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(cx-armLength, cy)).
+		LineTo(pt(cx, cy)).
+		LineTo(pt(cx, cy-armLength))
 }
 
 // rightTurnCorner builds a corner that turns right (clockwise).
-func rightTurnCorner(cx, cy, armLength float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, cx-armLength, cy) {
-			return
-		}
-		if !lineTo(yield, cx, cy) {
-			return
-		}
-		lineTo(yield, cx, cy+armLength)
-	}
+func rightTurnCorner(cx, cy, armLength float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(cx-armLength, cy)).
+		LineTo(pt(cx, cy)).
+		LineTo(pt(cx, cy+armLength))
 }
 
 // threeSegmentPath builds a path with three line segments (two corners).
-func threeSegmentPath(x1, y1, x2, y2, x3, y3, x4, y4 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		if !lineTo(yield, x3, y3) {
-			return
-		}
-		lineTo(yield, x4, y4)
-	}
+func threeSegmentPath(x1, y1, x2, y2, x3, y3, x4, y4 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x3, y3)).
+		LineTo(pt(x4, y4))
 }
 
 // closedTriangle builds a closed triangular path.
-func closedTriangle(x1, y1, x2, y2, x3, y3 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		if !lineTo(yield, x3, y3) {
-			return
-		}
-		closePath(yield)
-	}
+func closedTriangle(x1, y1, x2, y2, x3, y3 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x3, y3)).
+		Close()
+}
+
+// closedSquare builds a closed square path starting at (x, y) with given side length.
+func closedSquare(x, y, side float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x, y)).
+		LineTo(pt(x+side, y)).
+		LineTo(pt(x+side, y+side)).
+		LineTo(pt(x, y+side)).
+		Close()
 }

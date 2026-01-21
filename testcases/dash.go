@@ -20,7 +20,6 @@ import (
 	"math"
 
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/pdf/graphics"
 )
 
@@ -505,58 +504,25 @@ var dashCases = []TestCase{
 // cornerAngle builds a corner path with a specific angle.
 // The first segment goes from (x1, y1) to (cx, cy), the second segment
 // extends from (cx, cy) at the given angle (in degrees) from horizontal.
-func cornerAngle(x1, y1, cx, cy float64, angleDeg float64) path.Path {
+func cornerAngle(x1, y1, cx, cy float64, angleDeg float64) *path.Data {
 	// Calculate second endpoint based on angle
 	angleRad := angleDeg * math.Pi / 180
 	length := 30.0 // segment length
 	x2 := cx + length*math.Cos(angleRad)
 	y2 := cy - length*math.Sin(angleRad) // y is inverted in screen coords
 
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, cx, cy) {
-			return
-		}
-		lineTo(yield, x2, y2)
-	}
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(cx, cy)).
+		LineTo(pt(x2, y2))
 }
 
 // zigzag builds a zigzag path with multiple corners.
-func zigzag(x1, y1, x2, y2, x3, y3, x4, y4, x5, y5 float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x1, y1) {
-			return
-		}
-		if !lineTo(yield, x2, y2) {
-			return
-		}
-		if !lineTo(yield, x3, y3) {
-			return
-		}
-		if !lineTo(yield, x4, y4) {
-			return
-		}
-		lineTo(yield, x5, y5)
-	}
-}
-
-// closedSquare builds a closed square path starting at (x, y) with given side length.
-func closedSquare(x, y, side float64) path.Path {
-	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !moveTo(yield, x, y) {
-			return
-		}
-		if !lineTo(yield, x+side, y) {
-			return
-		}
-		if !lineTo(yield, x+side, y+side) {
-			return
-		}
-		if !lineTo(yield, x, y+side) {
-			return
-		}
-		closePath(yield)
-	}
+func zigzag(x1, y1, x2, y2, x3, y3, x4, y4, x5, y5 float64) *path.Data {
+	return (&path.Data{}).
+		MoveTo(pt(x1, y1)).
+		LineTo(pt(x2, y2)).
+		LineTo(pt(x3, y3)).
+		LineTo(pt(x4, y4)).
+		LineTo(pt(x5, y5))
 }
