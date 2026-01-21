@@ -109,29 +109,29 @@ func offsetRectangle(x1, y1, w, h, offset float64) path.Path {
 		ox2 := x1 + w + offset
 		oy2 := y1 + h + offset
 
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: ox1, Y: oy1}}) {
+		if !moveTo(yield, ox1, oy1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: ox2, Y: oy1}}) {
+		if !lineTo(yield, ox2, oy1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: ox2, Y: oy2}}) {
+		if !lineTo(yield, ox2, oy2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: ox1, Y: oy2}}) {
+		if !lineTo(yield, ox1, oy2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
 // horizontalLineAt builds a horizontal line segment at a specific y position.
 func horizontalLineAt(x1, y, x2 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y}}) {
+		if !moveTo(yield, x1, y) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y}})
+		lineTo(yield, x2, y)
 	}
 }
 
@@ -149,19 +149,19 @@ func largeOffsetRectangle(cx, cy, size float64) path.Path {
 		x2 := cx + size/2 + translateX
 		y2 := cy + size/2 + translateY
 
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y1}}) {
+		if !lineTo(yield, x2, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x1, Y: y2}}) {
+		if !lineTo(yield, x1, y2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -178,19 +178,19 @@ func smallShapeAtLargeOffset(cx, cy, size float64) path.Path {
 		x2 := cx + size/2 + translateX
 		y2 := cy + size/2 + translateY
 
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y1}}) {
+		if !lineTo(yield, x2, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x1, Y: y2}}) {
+		if !lineTo(yield, x1, y2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -209,18 +209,18 @@ func float64PrecisionShape() path.Path {
 		x2 := base + 10 + delta2
 		y2 := base + 10 + delta2
 
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y1}}) {
+		if !lineTo(yield, x2, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x1, Y: y2}}) {
+		if !lineTo(yield, x1, y2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }

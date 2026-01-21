@@ -19,6 +19,7 @@ package testcases
 import (
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
+	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/pdf/graphics"
 )
 
@@ -63,3 +64,36 @@ type Stroke struct {
 }
 
 func (Stroke) isOperation() {}
+
+// Path building helpers with zero allocations.
+// These use a package-level buffer that is reused for each yield.
+// Safe because path iteration is single-threaded within a call.
+
+var pathBuf [3]vec.Vec2
+
+func moveTo(yield func(path.Command, []vec.Vec2) bool, x, y float64) bool {
+	pathBuf[0] = vec.Vec2{X: x, Y: y}
+	return yield(path.CmdMoveTo, pathBuf[:1])
+}
+
+func lineTo(yield func(path.Command, []vec.Vec2) bool, x, y float64) bool {
+	pathBuf[0] = vec.Vec2{X: x, Y: y}
+	return yield(path.CmdLineTo, pathBuf[:1])
+}
+
+func quadTo(yield func(path.Command, []vec.Vec2) bool, x1, y1, x2, y2 float64) bool {
+	pathBuf[0] = vec.Vec2{X: x1, Y: y1}
+	pathBuf[1] = vec.Vec2{X: x2, Y: y2}
+	return yield(path.CmdQuadTo, pathBuf[:2])
+}
+
+func cubeTo(yield func(path.Command, []vec.Vec2) bool, x1, y1, x2, y2, x3, y3 float64) bool {
+	pathBuf[0] = vec.Vec2{X: x1, Y: y1}
+	pathBuf[1] = vec.Vec2{X: x2, Y: y2}
+	pathBuf[2] = vec.Vec2{X: x3, Y: y3}
+	return yield(path.CmdCubeTo, pathBuf[:3])
+}
+
+func closePath(yield func(path.Command, []vec.Vec2) bool) bool {
+	return yield(path.CmdClose, nil)
+}

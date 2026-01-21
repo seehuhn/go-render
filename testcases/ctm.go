@@ -192,10 +192,10 @@ var ctmCases = []TestCase{
 // horizontalLineCentered creates a horizontal line centered at origin.
 func horizontalLineCentered(x1, y, x2 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y}}) {
+		if !moveTo(yield, x1, y) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y}})
+		lineTo(yield, x2, y)
 	}
 }
 
@@ -211,12 +211,12 @@ func cornerCentered(cx, cy float64, angle float64) path.Path {
 		x2 := cx + length*math.Cos(halfAngle)
 		y2 := cy - length*math.Sin(halfAngle)
 
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx, Y: cy}}) {
+		if !lineTo(yield, cx, cy) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}})
+		lineTo(yield, x2, y2)
 	}
 }

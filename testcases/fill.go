@@ -224,16 +224,16 @@ var fillCases = []TestCase{
 // triangle builds a triangular path.
 func triangle(x1, y1, x2, y2, x3, y3 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x3, Y: y3}}) {
+		if !lineTo(yield, x3, y3) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -241,7 +241,7 @@ func triangle(x1, y1, x2, y2, x3, y3 float64) path.Path {
 func fivePointStar(cx, cy, r float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		// five points, connecting every second point
-		pts := make([]vec.Vec2, 5)
+		var pts [5]vec.Vec2
 		for i := range 5 {
 			angle := float64(i)*2*math.Pi/5 - math.Pi/2
 			pts[i] = vec.Vec2{
@@ -251,35 +251,35 @@ func fivePointStar(cx, cy, r float64) path.Path {
 		}
 
 		// draw star: 0 -> 2 -> 4 -> 1 -> 3 -> 0
-		order := []int{0, 2, 4, 1, 3}
-		if !yield(path.CmdMoveTo, []vec.Vec2{pts[order[0]]}) {
+		order := [5]int{0, 2, 4, 1, 3}
+		if !moveTo(yield, pts[order[0]].X, pts[order[0]].Y) {
 			return
 		}
 		for _, i := range order[1:] {
-			if !yield(path.CmdLineTo, []vec.Vec2{pts[i]}) {
+			if !lineTo(yield, pts[i].X, pts[i].Y) {
 				return
 			}
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
 // rectangle builds a rectangular path.
 func rectangle(x1, y1, x2, y2 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y1}}) {
+		if !lineTo(yield, x2, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x1, Y: y2}}) {
+		if !lineTo(yield, x1, y2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -287,36 +287,36 @@ func rectangle(x1, y1, x2, y2 float64) path.Path {
 func concentricRectangles(cx, cy, outerSize, innerSize float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		// Outer rectangle (clockwise)
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - outerSize, Y: cy - outerSize}}) {
+		if !moveTo(yield, cx-outerSize, cy-outerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + outerSize, Y: cy - outerSize}}) {
+		if !lineTo(yield, cx+outerSize, cy-outerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + outerSize, Y: cy + outerSize}}) {
+		if !lineTo(yield, cx+outerSize, cy+outerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx - outerSize, Y: cy + outerSize}}) {
+		if !lineTo(yield, cx-outerSize, cy+outerSize) {
 			return
 		}
-		if !yield(path.CmdClose, nil) {
+		if !closePath(yield) {
 			return
 		}
 
 		// Inner rectangle (counter-clockwise for hole)
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - innerSize, Y: cy - innerSize}}) {
+		if !moveTo(yield, cx-innerSize, cy-innerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx - innerSize, Y: cy + innerSize}}) {
+		if !lineTo(yield, cx-innerSize, cy+innerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + innerSize, Y: cy + innerSize}}) {
+		if !lineTo(yield, cx+innerSize, cy+innerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + innerSize, Y: cy - innerSize}}) {
+		if !lineTo(yield, cx+innerSize, cy-innerSize) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -327,74 +327,42 @@ func overlappingCircles(cx1, cy1 float64, cx2, cy2 float64, r float64) path.Path
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		// First circle
 		k := r * kappa
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx1 + r, Y: cy1}}) {
+		if !moveTo(yield, cx1+r, cy1) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx1 + r, Y: cy1 - k},
-			{X: cx1 + k, Y: cy1 - r},
-			{X: cx1, Y: cy1 - r},
-		}) {
+		if !cubeTo(yield, cx1+r, cy1-k, cx1+k, cy1-r, cx1, cy1-r) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx1 - k, Y: cy1 - r},
-			{X: cx1 - r, Y: cy1 - k},
-			{X: cx1 - r, Y: cy1},
-		}) {
+		if !cubeTo(yield, cx1-k, cy1-r, cx1-r, cy1-k, cx1-r, cy1) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx1 - r, Y: cy1 + k},
-			{X: cx1 - k, Y: cy1 + r},
-			{X: cx1, Y: cy1 + r},
-		}) {
+		if !cubeTo(yield, cx1-r, cy1+k, cx1-k, cy1+r, cx1, cy1+r) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx1 + k, Y: cy1 + r},
-			{X: cx1 + r, Y: cy1 + k},
-			{X: cx1 + r, Y: cy1},
-		}) {
+		if !cubeTo(yield, cx1+k, cy1+r, cx1+r, cy1+k, cx1+r, cy1) {
 			return
 		}
-		if !yield(path.CmdClose, nil) {
+		if !closePath(yield) {
 			return
 		}
 
 		// Second circle
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx2 + r, Y: cy2}}) {
+		if !moveTo(yield, cx2+r, cy2) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx2 + r, Y: cy2 - k},
-			{X: cx2 + k, Y: cy2 - r},
-			{X: cx2, Y: cy2 - r},
-		}) {
+		if !cubeTo(yield, cx2+r, cy2-k, cx2+k, cy2-r, cx2, cy2-r) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx2 - k, Y: cy2 - r},
-			{X: cx2 - r, Y: cy2 - k},
-			{X: cx2 - r, Y: cy2},
-		}) {
+		if !cubeTo(yield, cx2-k, cy2-r, cx2-r, cy2-k, cx2-r, cy2) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx2 - r, Y: cy2 + k},
-			{X: cx2 - k, Y: cy2 + r},
-			{X: cx2, Y: cy2 + r},
-		}) {
+		if !cubeTo(yield, cx2-r, cy2+k, cx2-k, cy2+r, cx2, cy2+r) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx2 + k, Y: cy2 + r},
-			{X: cx2 + r, Y: cy2 + k},
-			{X: cx2 + r, Y: cy2},
-		}) {
+		if !cubeTo(yield, cx2+k, cy2+r, cx2+r, cy2+k, cx2+r, cy2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -402,22 +370,22 @@ func overlappingCircles(cx1, cy1 float64, cx2, cy2 float64, r float64) path.Path
 func figureEight(cx, cy, width, height float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		// Start at top-left, cross through center
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - width, Y: cy - height}}) {
+		if !moveTo(yield, cx-width, cy-height) {
 			return
 		}
 		// Go to bottom-right
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + width, Y: cy + height}}) {
+		if !lineTo(yield, cx+width, cy+height) {
 			return
 		}
 		// Go to top-right
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + width, Y: cy - height}}) {
+		if !lineTo(yield, cx+width, cy-height) {
 			return
 		}
 		// Go to bottom-left (crossing the first line)
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx - width, Y: cy + height}}) {
+		if !lineTo(yield, cx-width, cy+height) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -425,19 +393,19 @@ func figureEight(cx, cy, width, height float64) path.Path {
 func highWindingRect(cx, cy, size float64, windings int) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		for i := 0; i < windings; i++ {
-			if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - size, Y: cy - size}}) {
+			if !moveTo(yield, cx-size, cy-size) {
 				return
 			}
-			if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + size, Y: cy - size}}) {
+			if !lineTo(yield, cx+size, cy-size) {
 				return
 			}
-			if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + size, Y: cy + size}}) {
+			if !lineTo(yield, cx+size, cy+size) {
 				return
 			}
-			if !yield(path.CmdLineTo, []vec.Vec2{{X: cx - size, Y: cy + size}}) {
+			if !lineTo(yield, cx-size, cy+size) {
 				return
 			}
-			if !yield(path.CmdClose, nil) {
+			if !closePath(yield) {
 				return
 			}
 		}
@@ -448,55 +416,55 @@ func highWindingRect(cx, cy, size float64, windings int) path.Path {
 func alternatingWinding(cx, cy, outerSize, innerSize float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		// Outer rectangle (counter-clockwise)
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - outerSize, Y: cy - outerSize}}) {
+		if !moveTo(yield, cx-outerSize, cy-outerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx - outerSize, Y: cy + outerSize}}) {
+		if !lineTo(yield, cx-outerSize, cy+outerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + outerSize, Y: cy + outerSize}}) {
+		if !lineTo(yield, cx+outerSize, cy+outerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + outerSize, Y: cy - outerSize}}) {
+		if !lineTo(yield, cx+outerSize, cy-outerSize) {
 			return
 		}
-		if !yield(path.CmdClose, nil) {
+		if !closePath(yield) {
 			return
 		}
 
 		// Inner rectangle (clockwise - same direction conceptually)
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - innerSize, Y: cy - innerSize}}) {
+		if !moveTo(yield, cx-innerSize, cy-innerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + innerSize, Y: cy - innerSize}}) {
+		if !lineTo(yield, cx+innerSize, cy-innerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + innerSize, Y: cy + innerSize}}) {
+		if !lineTo(yield, cx+innerSize, cy+innerSize) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx - innerSize, Y: cy + innerSize}}) {
+		if !lineTo(yield, cx-innerSize, cy+innerSize) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
 // diamond builds a diamond shape (45 degree rotated square).
 func diamond(cx, cy, size float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx, Y: cy - size}}) {
+		if !moveTo(yield, cx, cy-size) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + size, Y: cy}}) {
+		if !lineTo(yield, cx+size, cy) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx, Y: cy + size}}) {
+		if !lineTo(yield, cx, cy+size) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx - size, Y: cy}}) {
+		if !lineTo(yield, cx-size, cy) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -504,19 +472,19 @@ func diamond(cx, cy, size float64) path.Path {
 func nearHorizontalQuad(x1, y1, x2, y2 float64) path.Path {
 	height := 10.0
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2 + height}}) {
+		if !lineTo(yield, x2, y2+height) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x1, Y: y1 + height}}) {
+		if !lineTo(yield, x1, y1+height) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -524,18 +492,18 @@ func nearHorizontalQuad(x1, y1, x2, y2 float64) path.Path {
 func nearVerticalQuad(x1, y1, x2, y2 float64) path.Path {
 	width := 10.0
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x1 + width, Y: y1}}) {
+		if !lineTo(yield, x1+width, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2 + width, Y: y2}}) {
+		if !lineTo(yield, x2+width, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }

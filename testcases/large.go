@@ -90,19 +90,19 @@ func rectangleGrid(rows, cols, width, height int, gap float64) path.Path {
 				x2 := float64(col+1)*cellW - gap
 				y2 := float64(row+1)*cellH - gap
 
-				if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+				if !moveTo(yield, x1, y1) {
 					return
 				}
-				if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y1}}) {
+				if !lineTo(yield, x2, y1) {
 					return
 				}
-				if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+				if !lineTo(yield, x2, y2) {
 					return
 				}
-				if !yield(path.CmdLineTo, []vec.Vec2{{X: x1, Y: y2}}) {
+				if !lineTo(yield, x1, y2) {
 					return
 				}
-				if !yield(path.CmdClose, nil) {
+				if !closePath(yield) {
 					return
 				}
 			}

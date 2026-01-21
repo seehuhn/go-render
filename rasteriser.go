@@ -86,12 +86,6 @@ type strokeSegment struct {
 	N    vec.Vec2 // unit normal (90° CCW from T)
 }
 
-// strokeSubpath holds the segments of a flattened subpath.
-type strokeSubpath struct {
-	segments []strokeSegment
-	closed   bool
-}
-
 // Rasteriser converts vector paths to pixel coverage values.
 // The caller creates one instance and reuses it for multiple paths.
 // Internal buffers grow as needed but never shrink, achieving zero
@@ -147,6 +141,23 @@ type Rasteriser struct {
 	strokeOffsets []int       // start index of each stroke polygon in stroke[]
 	crossings     []crossing  // reusable buffer for edge/pixel boundary crossings
 	yieldPt       [1]vec.Vec2 // reusable buffer for yielding single points in path iterators
+
+	// Flattening buffers (for stroke path processing)
+	flattenedSegs    []strokeSegment // all segments from all subpaths, contiguous
+	flattenedOffsets []int           // start index of each subpath in flattenedSegs
+	flattenedClosed  []bool          // whether each subpath is closed
+	degeneratePoints []vec.Vec2      // degenerate subpaths (no orientation)
+
+	// Edge collection state (used by collectEdges/addEdge)
+	edgeBBoxFirst bool    // true if no edges added yet
+	edgeDevXMin   float64 // bounding box in device space
+	edgeDevXMax   float64
+	edgeDevYMin   float64
+	edgeDevYMax   float64
+
+	// Dash pattern output buffers
+	dashedSegs    []strokeSegment // all dashed segments, contiguous
+	dashedOffsets []int           // start index of each dashed subpath
 }
 
 // NewRasteriser creates a new Rasteriser with the given clip rectangle
@@ -288,87 +299,36 @@ func (r *Rasteriser) fill(p path.Path, rule fillRule, emit func(y, xMin int, cov
 // Returns the bounding box of all edges in device coordinates (clamped to clip).
 func (r *Rasteriser) collectEdges(p path.Path) (xMin, xMax, yMin, yMax int, ok bool) {
 	r.edges = r.edges[:0]
+	r.edgeBBoxFirst = true
 
 	// Path state
-	var currentX, currentY float64 // current point (user space)
-	var subpathX, subpathY float64 // subpath start (user space)
-	var devXMin, devXMax float64   // bounding box (device space)
-	var devYMin, devYMax float64
-	first := true
-
-	// Helper to add an edge (user space coords, will be transformed)
-	addEdge := func(x0, y0, x1, y1 float64) {
-		// Transform to device space
-		dx0 := r.CTM[0]*x0 + r.CTM[2]*y0 + r.CTM[4]
-		dy0 := r.CTM[1]*x0 + r.CTM[3]*y0 + r.CTM[5]
-		dx1 := r.CTM[0]*x1 + r.CTM[2]*y1 + r.CTM[4]
-		dy1 := r.CTM[1]*x1 + r.CTM[3]*y1 + r.CTM[5]
-
-		// Skip horizontal edges
-		dy := dy1 - dy0
-		if dy > -horizontalEdgeThreshold && dy < horizontalEdgeThreshold {
-			return
-		}
-
-		// Compute dxdy
-		dxdy := (dx1 - dx0) / dy
-
-		r.edges = append(r.edges, edge{
-			x0: dx0, y0: dy0,
-			x1: dx1, y1: dy1,
-			dxdy: dxdy,
-		})
-
-		// Update bounding box
-		if first {
-			devXMin = min(dx0, dx1)
-			devXMax = max(dx0, dx1)
-			devYMin = min(dy0, dy1)
-			devYMax = max(dy0, dy1)
-			first = false
-		} else {
-			devXMin = min(devXMin, min(dx0, dx1))
-			devXMax = max(devXMax, max(dx0, dx1))
-			devYMin = min(devYMin, min(dy0, dy1))
-			devYMax = max(devYMax, max(dy0, dy1))
-		}
-	}
+	var current vec.Vec2 // current point (user space)
+	var subpath vec.Vec2 // subpath start (user space)
 
 	// Walk the path
 	for cmd, pts := range p {
 		switch cmd {
 		case path.CmdMoveTo:
-			currentX, currentY = pts[0].X, pts[0].Y
-			subpathX, subpathY = currentX, currentY
+			current = pts[0]
+			subpath = current
 
 		case path.CmdLineTo:
-			addEdge(currentX, currentY, pts[0].X, pts[0].Y)
-			currentX, currentY = pts[0].X, pts[0].Y
+			r.addEdge(current, pts[0])
+			current = pts[0]
 
 		case path.CmdQuadTo:
-			p0 := vec.Vec2{X: currentX, Y: currentY}
-			p1 := pts[0] // control point
-			p2 := pts[1] // endpoint
-			r.flattenQuadratic(p0, p1, p2, func(from, to vec.Vec2) {
-				addEdge(from.X, from.Y, to.X, to.Y)
-			})
-			currentX, currentY = p2.X, p2.Y
+			r.flattenQuadratic(current, pts[0], pts[1], r.addEdge)
+			current = pts[1]
 
 		case path.CmdCubeTo:
-			p0 := vec.Vec2{X: currentX, Y: currentY}
-			p1 := pts[0] // control point 1
-			p2 := pts[1] // control point 2
-			p3 := pts[2] // endpoint
-			r.flattenCubic(p0, p1, p2, p3, func(from, to vec.Vec2) {
-				addEdge(from.X, from.Y, to.X, to.Y)
-			})
-			currentX, currentY = p3.X, p3.Y
+			r.flattenCubic(current, pts[0], pts[1], pts[2], r.addEdge)
+			current = pts[2]
 
 		case path.CmdClose:
-			if currentX != subpathX || currentY != subpathY {
-				addEdge(currentX, currentY, subpathX, subpathY)
+			if current != subpath {
+				r.addEdge(current, subpath)
 			}
-			currentX, currentY = subpathX, subpathY
+			current = subpath
 		}
 	}
 
@@ -382,16 +342,54 @@ func (r *Rasteriser) collectEdges(p path.Path) (xMin, xMax, yMin, yMax int, ok b
 	clipYMin := int(r.Clip.LLy)
 	clipYMax := int(r.Clip.URy)
 
-	xMin = max(int(math.Floor(devXMin)), clipXMin)
-	xMax = min(int(math.Floor(devXMax))+1, clipXMax)
-	yMin = max(int(math.Floor(devYMin)), clipYMin)
-	yMax = min(int(math.Floor(devYMax))+1, clipYMax)
+	xMin = max(int(math.Floor(r.edgeDevXMin)), clipXMin)
+	xMax = min(int(math.Floor(r.edgeDevXMax))+1, clipXMax)
+	yMin = max(int(math.Floor(r.edgeDevYMin)), clipYMin)
+	yMax = min(int(math.Floor(r.edgeDevYMax))+1, clipYMax)
 
 	if xMin >= xMax || yMin >= yMax {
 		return 0, 0, 0, 0, false
 	}
 
 	return xMin, xMax, yMin, yMax, true
+}
+
+// addEdge adds an edge from user space coordinates, transforming to device space.
+func (r *Rasteriser) addEdge(p0, p1 vec.Vec2) {
+	// Transform to device space
+	dx0 := r.CTM[0]*p0.X + r.CTM[2]*p0.Y + r.CTM[4]
+	dy0 := r.CTM[1]*p0.X + r.CTM[3]*p0.Y + r.CTM[5]
+	dx1 := r.CTM[0]*p1.X + r.CTM[2]*p1.Y + r.CTM[4]
+	dy1 := r.CTM[1]*p1.X + r.CTM[3]*p1.Y + r.CTM[5]
+
+	// Skip horizontal edges
+	dy := dy1 - dy0
+	if dy > -horizontalEdgeThreshold && dy < horizontalEdgeThreshold {
+		return
+	}
+
+	// Compute dxdy
+	dxdy := (dx1 - dx0) / dy
+
+	r.edges = append(r.edges, edge{
+		x0: dx0, y0: dy0,
+		x1: dx1, y1: dy1,
+		dxdy: dxdy,
+	})
+
+	// Update bounding box
+	if r.edgeBBoxFirst {
+		r.edgeDevXMin = min(dx0, dx1)
+		r.edgeDevXMax = max(dx0, dx1)
+		r.edgeDevYMin = min(dy0, dy1)
+		r.edgeDevYMax = max(dy0, dy1)
+		r.edgeBBoxFirst = false
+	} else {
+		r.edgeDevXMin = min(r.edgeDevXMin, min(dx0, dx1))
+		r.edgeDevXMax = max(r.edgeDevXMax, max(dx0, dx1))
+		r.edgeDevYMin = min(r.edgeDevYMin, min(dy0, dy1))
+		r.edgeDevYMax = max(r.edgeDevYMax, max(dy0, dy1))
+	}
 }
 
 // accumulateEdge adds a single edge's contribution to the cover and area buffers.
@@ -822,15 +820,10 @@ func (r *Rasteriser) fillScanline(xMin, xMax, yMin, yMax int, rule fillRule, emi
 // The coverage slice passed to emit is only valid for the duration
 // of the callback.
 func (r *Rasteriser) Stroke(p path.Path, emit func(y, xMin int, coverage []float32)) {
-	// Flatten path into subpaths
-	subpaths, degeneratePoints := r.flattenPath(p)
-	if len(subpaths) == 0 && len(degeneratePoints) == 0 {
+	// Flatten path into subpaths (results stored in r.flattenedSegs, etc.)
+	r.flattenPath(p)
+	if len(r.flattenedOffsets) == 0 && len(r.degeneratePoints) == 0 {
 		return
-	}
-
-	// Apply dash pattern if specified
-	if len(r.Dash) > 0 {
-		subpaths = r.applyDashPattern(subpaths)
 	}
 
 	// Build stroke outlines for all subpaths into a single contiguous buffer.
@@ -841,17 +834,66 @@ func (r *Rasteriser) Stroke(p path.Path, emit func(y, xMin int, coverage []float
 
 	// Handle degenerate subpaths (no orientation): only round cap produces circle
 	if r.Cap == graphics.LineCapRound {
-		for _, pt := range degeneratePoints {
+		for _, pt := range r.degeneratePoints {
 			startOffset := len(r.stroke)
 			r.addArc(pt, r.Width/2, vec.Vec2{X: 1, Y: 0}, 2*math.Pi, true)
 			r.strokeOffsets = append(r.strokeOffsets, startOffset)
 		}
 	}
 
-	for _, sp := range subpaths {
+	// Apply dash pattern if specified
+	if len(r.Dash) > 0 {
+		r.strokeDashedSubpaths()
+	} else {
+		r.strokeAllSubpaths()
+	}
+
+	// Fill all stroke polygons together as a compound path
+	r.fillStrokeOutlines(emit)
+}
+
+// strokeAllSubpaths strokes all flattened subpaths (non-dashed case).
+func (r *Rasteriser) strokeAllSubpaths() {
+	numSubpaths := len(r.flattenedOffsets)
+	for i := 0; i < numSubpaths; i++ {
+		segs := r.getSubpathSegments(i)
+		closed := r.flattenedClosed[i]
+
+		startOffset := len(r.stroke)
+		r.strokeSubpath(segs, closed)
+		if len(r.stroke)-startOffset >= 3 {
+			r.strokeOffsets = append(r.strokeOffsets, startOffset)
+		} else {
+			// Degenerate polygon, discard by resetting to start
+			r.stroke = r.stroke[:startOffset]
+		}
+	}
+}
+
+// getSubpathSegments returns the segments for subpath i as a slice into flattenedSegs.
+func (r *Rasteriser) getSubpathSegments(i int) []strokeSegment {
+	start := r.flattenedOffsets[i]
+	var end int
+	if i+1 < len(r.flattenedOffsets) {
+		end = r.flattenedOffsets[i+1]
+	} else {
+		end = len(r.flattenedSegs)
+	}
+	return r.flattenedSegs[start:end]
+}
+
+// strokeDashedSubpaths applies dash pattern and strokes the resulting segments.
+func (r *Rasteriser) strokeDashedSubpaths() {
+	// Apply dash pattern - populates r.dashedSegs and r.dashedOffsets
+	r.applyDashPattern()
+
+	numDashes := len(r.dashedOffsets)
+	for i := 0; i < numDashes; i++ {
+		segs := r.getDashedSegments(i)
+
 		// Handle dash-created zero-length segments (have orientation from underlying path)
-		if len(sp.segments) == 1 && sp.segments[0].A == sp.segments[0].B {
-			seg := &sp.segments[0]
+		if len(segs) == 1 && segs[0].A == segs[0].B {
+			seg := &segs[0]
 			startOffset := len(r.stroke)
 			switch r.Cap {
 			case graphics.LineCapRound:
@@ -866,7 +908,7 @@ func (r *Rasteriser) Stroke(p path.Path, emit func(y, xMin int, coverage []float
 		}
 
 		startOffset := len(r.stroke)
-		r.strokeSubpath(sp.segments, sp.closed)
+		r.strokeSubpath(segs, false) // dashed subpaths are never closed
 		if len(r.stroke)-startOffset >= 3 {
 			r.strokeOffsets = append(r.strokeOffsets, startOffset)
 		} else {
@@ -874,48 +916,55 @@ func (r *Rasteriser) Stroke(p path.Path, emit func(y, xMin int, coverage []float
 			r.stroke = r.stroke[:startOffset]
 		}
 	}
-
-	// Fill all stroke polygons together as a compound path
-	r.fillStrokeOutlines(emit)
 }
 
-// flattenPath walks the path, flattens curves, and returns subpaths with
-// precomputed segment geometry. Degenerate subpaths (no orientation) are
-// returned separately for special handling.
-func (r *Rasteriser) flattenPath(p path.Path) (subpaths []strokeSubpath, degeneratePoints []vec.Vec2) {
-	var current []strokeSegment
+// getDashedSegments returns the segments for dashed subpath i as a slice into dashedSegs.
+func (r *Rasteriser) getDashedSegments(i int) []strokeSegment {
+	start := r.dashedOffsets[i]
+	var end int
+	if i+1 < len(r.dashedOffsets) {
+		end = r.dashedOffsets[i+1]
+	} else {
+		end = len(r.dashedSegs)
+	}
+	return r.dashedSegs[start:end]
+}
+
+// flattenPath walks the path, flattens curves, and populates the flattening
+// buffers with precomputed segment geometry. Results are stored in:
+//   - r.flattenedSegs: all segments from all subpaths, contiguous
+//   - r.flattenedOffsets: start index of each subpath in flattenedSegs
+//   - r.flattenedClosed: whether each subpath is closed
+//   - r.degeneratePoints: degenerate subpaths (no orientation)
+func (r *Rasteriser) flattenPath(p path.Path) {
+	// Clear buffers (preserving capacity)
+	r.flattenedSegs = r.flattenedSegs[:0]
+	r.flattenedOffsets = r.flattenedOffsets[:0]
+	r.flattenedClosed = r.flattenedClosed[:0]
+	r.degeneratePoints = r.degeneratePoints[:0]
+
 	var currentPt vec.Vec2
-	var subpathStart vec.Vec2
+	var subpathStartPt vec.Vec2
+	subpathStartIdx := 0 // index into flattenedSegs where current subpath starts
 	inSubpath := false
 	sawDrawingCmd := false // tracks if we saw LineTo/QuadTo/CubeTo (for degenerate detection)
-
-	// Helper to add a line segment to current subpath
-	addSegment := func(a, b vec.Vec2) {
-		d := b.Sub(a)
-		length := d.Length()
-		if length < zeroLengthThreshold {
-			return // skip degenerate segment
-		}
-		t := d.Mul(1 / length)         // unit tangent
-		n := vec.Vec2{X: -t.Y, Y: t.X} // unit normal (90° CCW)
-		current = append(current, strokeSegment{A: a, B: b, T: t, N: n})
-	}
 
 	for cmd, pts := range p {
 		switch cmd {
 		case path.CmdMoveTo:
 			// Close previous subpath if needed
-			if inSubpath && (len(current) > 0 || sawDrawingCmd) {
-				if len(current) == 0 {
+			if inSubpath && (len(r.flattenedSegs) > subpathStartIdx || sawDrawingCmd) {
+				if len(r.flattenedSegs) == subpathStartIdx {
 					// Degenerate subpath (no orientation) - collect for special handling
-					degeneratePoints = append(degeneratePoints, subpathStart)
+					r.degeneratePoints = append(r.degeneratePoints, subpathStartPt)
 				} else {
-					subpaths = append(subpaths, strokeSubpath{segments: current, closed: false})
+					r.flattenedOffsets = append(r.flattenedOffsets, subpathStartIdx)
+					r.flattenedClosed = append(r.flattenedClosed, false)
 				}
-				current = nil
 			}
 			currentPt = pts[0]
-			subpathStart = currentPt
+			subpathStartPt = currentPt
+			subpathStartIdx = len(r.flattenedSegs)
 			inSubpath = true
 			sawDrawingCmd = false
 
@@ -924,7 +973,7 @@ func (r *Rasteriser) flattenPath(p path.Path) (subpaths []strokeSubpath, degener
 				continue
 			}
 			sawDrawingCmd = true
-			addSegment(currentPt, pts[0])
+			r.addFlattenedSegment(currentPt, pts[0])
 			currentPt = pts[0]
 
 		case path.CmdQuadTo:
@@ -935,9 +984,7 @@ func (r *Rasteriser) flattenPath(p path.Path) (subpaths []strokeSubpath, degener
 			p0 := currentPt
 			p1 := pts[0] // control point
 			p2 := pts[1] // endpoint
-			r.flattenQuadratic(p0, p1, p2, func(from, to vec.Vec2) {
-				addSegment(from, to)
-			})
+			r.flattenQuadratic(p0, p1, p2, r.addFlattenedSegment)
 			currentPt = p2
 
 		case path.CmdCubeTo:
@@ -949,25 +996,24 @@ func (r *Rasteriser) flattenPath(p path.Path) (subpaths []strokeSubpath, degener
 			p1 := pts[0] // control point 1
 			p2 := pts[1] // control point 2
 			p3 := pts[2] // endpoint
-			r.flattenCubic(p0, p1, p2, p3, func(from, to vec.Vec2) {
-				addSegment(from, to)
-			})
+			r.flattenCubic(p0, p1, p2, p3, r.addFlattenedSegment)
 			currentPt = p3
 
 		case path.CmdClose:
 			if inSubpath {
 				// Add closing segment if needed
-				if currentPt != subpathStart {
-					addSegment(currentPt, subpathStart)
+				if currentPt != subpathStartPt {
+					r.addFlattenedSegment(currentPt, subpathStartPt)
 				}
-				if len(current) == 0 {
+				if len(r.flattenedSegs) == subpathStartIdx {
 					// Degenerate closed subpath - collect for special handling
-					degeneratePoints = append(degeneratePoints, subpathStart)
+					r.degeneratePoints = append(r.degeneratePoints, subpathStartPt)
 				} else {
-					subpaths = append(subpaths, strokeSubpath{segments: current, closed: true})
+					r.flattenedOffsets = append(r.flattenedOffsets, subpathStartIdx)
+					r.flattenedClosed = append(r.flattenedClosed, true)
 				}
-				current = nil
-				currentPt = subpathStart
+				currentPt = subpathStartPt
+				subpathStartIdx = len(r.flattenedSegs)
 				inSubpath = false
 				sawDrawingCmd = false
 			}
@@ -975,16 +1021,27 @@ func (r *Rasteriser) flattenPath(p path.Path) (subpaths []strokeSubpath, degener
 	}
 
 	// Handle unclosed subpath at end
-	if inSubpath && (len(current) > 0 || sawDrawingCmd) {
-		if len(current) == 0 {
+	if inSubpath && (len(r.flattenedSegs) > subpathStartIdx || sawDrawingCmd) {
+		if len(r.flattenedSegs) == subpathStartIdx {
 			// Degenerate subpath - collect for special handling
-			degeneratePoints = append(degeneratePoints, subpathStart)
+			r.degeneratePoints = append(r.degeneratePoints, subpathStartPt)
 		} else {
-			subpaths = append(subpaths, strokeSubpath{segments: current, closed: false})
+			r.flattenedOffsets = append(r.flattenedOffsets, subpathStartIdx)
+			r.flattenedClosed = append(r.flattenedClosed, false)
 		}
 	}
+}
 
-	return subpaths, degeneratePoints
+// addFlattenedSegment adds a line segment to the flattening buffer.
+func (r *Rasteriser) addFlattenedSegment(a, b vec.Vec2) {
+	d := b.Sub(a)
+	length := d.Length()
+	if length < zeroLengthThreshold {
+		return // skip degenerate segment
+	}
+	t := d.Mul(1 / length)         // unit tangent
+	n := vec.Vec2{X: -t.Y, Y: t.X} // unit normal (90° CCW)
+	r.flattenedSegs = append(r.flattenedSegs, strokeSegment{A: a, B: b, T: t, N: n})
 }
 
 // strokeSubpath builds the stroke outline for a single subpath into r.stroke.
@@ -1296,9 +1353,13 @@ func (r *Rasteriser) addSquare(center vec.Vec2, T vec.Vec2, d float64) {
 	)
 }
 
-// applyDashPattern applies the dash pattern to subpaths.
-// Returns a new slice of subpaths with the pattern applied.
-func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath {
+// applyDashPattern applies the dash pattern to flattened subpaths.
+// Results are stored in r.dashedSegs and r.dashedOffsets.
+func (r *Rasteriser) applyDashPattern() {
+	// Clear output buffers (preserving capacity)
+	r.dashedSegs = r.dashedSegs[:0]
+	r.dashedOffsets = r.dashedOffsets[:0]
+
 	// Normalize dash pattern (odd length -> double it)
 	dash := r.Dash
 	if len(dash)%2 == 1 {
@@ -1311,7 +1372,7 @@ func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath 
 		patternLen += d
 	}
 	if patternLen <= 0 {
-		return subpaths // no dashing
+		return // no dashing
 	}
 
 	// Normalize phase to [0, patternLen)
@@ -1321,17 +1382,12 @@ func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath 
 		phase += patternLen
 	}
 
-	var result []strokeSubpath
-
-	for _, sp := range subpaths {
-		if len(sp.segments) == 0 {
+	numSubpaths := len(r.flattenedOffsets)
+	for spIdx := 0; spIdx < numSubpaths; spIdx++ {
+		segments := r.getSubpathSegments(spIdx)
+		closed := r.flattenedClosed[spIdx]
+		if len(segments) == 0 {
 			continue
-		}
-
-		// Compute total subpath length
-		totalLen := 0.0
-		for _, seg := range sp.segments {
-			totalLen += seg.B.Sub(seg.A).Length()
 		}
 
 		// Find starting dash index and remaining distance in that dash
@@ -1346,12 +1402,10 @@ func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath 
 
 		// Handle zero-length dash at the very start of the path.
 		// This emits a point that will become a dot with round/square caps.
-		if isOn && remaining == 0 && len(sp.segments) > 0 {
-			seg := sp.segments[0]
-			result = append(result, strokeSubpath{
-				segments: []strokeSegment{{A: seg.A, B: seg.A, T: seg.T, N: seg.N}},
-				closed:   false,
-			})
+		if isOn && remaining == 0 && len(segments) > 0 {
+			seg := segments[0]
+			r.dashedOffsets = append(r.dashedOffsets, len(r.dashedSegs))
+			r.dashedSegs = append(r.dashedSegs, strokeSegment{A: seg.A, B: seg.A, T: seg.T, N: seg.N})
 			// Advance to next dash element
 			dashIdx = (dashIdx + 1) % len(dash)
 			remaining = dash[dashIdx]
@@ -1360,15 +1414,16 @@ func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath 
 
 		// Track if we started with "on" for closed path joining
 		startedOn := isOn
-		var firstDashSegs []strokeSegment
+		firstDashStart := -1 // index into dashedSegs where first dash starts
+		firstDashEnd := -1   // index into dashedSegs where first dash ends
 
 		// Walk segments and split at dash boundaries
-		var currentDash []strokeSegment
+		dashStartIdx := len(r.dashedSegs) // start of current dash in dashedSegs
 		segIdx := 0
 		segDist := 0.0 // distance along current segment
 
-		for segIdx < len(sp.segments) {
-			seg := sp.segments[segIdx]
+		for segIdx < len(segments) {
+			seg := segments[segIdx]
 			segLen := seg.B.Sub(seg.A).Length()
 			segRemaining := segLen - segDist
 
@@ -1379,12 +1434,12 @@ func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath 
 					if segDist > 0 {
 						t := segDist / segLen
 						startPt := seg.A.Add(seg.B.Sub(seg.A).Mul(t))
-						currentDash = append(currentDash, strokeSegment{
+						r.dashedSegs = append(r.dashedSegs, strokeSegment{
 							A: startPt, B: seg.B,
 							T: seg.T, N: seg.N,
 						})
 					} else {
-						currentDash = append(currentDash, seg)
+						r.dashedSegs = append(r.dashedSegs, seg)
 					}
 				}
 				remaining -= segRemaining
@@ -1405,28 +1460,29 @@ func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath 
 					if dLen > zeroLengthThreshold {
 						tVec := d.Mul(1 / dLen)
 						nVec := vec.Vec2{X: -tVec.Y, Y: tVec.X}
-						currentDash = append(currentDash, strokeSegment{
+						r.dashedSegs = append(r.dashedSegs, strokeSegment{
 							A: startPt, B: splitPt,
 							T: tVec, N: nVec,
 						})
-					} else if len(currentDash) == 0 {
+					} else if len(r.dashedSegs) == dashStartIdx {
 						// Zero-length dash: emit point with tangent from underlying segment
 						// This allows square/round caps to be drawn at this point
-						currentDash = append(currentDash, strokeSegment{
+						r.dashedSegs = append(r.dashedSegs, strokeSegment{
 							A: startPt, B: startPt,
 							T: seg.T, N: seg.N,
 						})
 					}
 
-					// Save first dash segments for closed path
-					if len(result) == 0 && firstDashSegs == nil {
-						firstDashSegs = append([]strokeSegment{}, currentDash...)
+					// Save first dash indices for closed path joining
+					if firstDashStart < 0 && len(r.dashedSegs) > dashStartIdx {
+						firstDashStart = dashStartIdx
+						firstDashEnd = len(r.dashedSegs)
 					}
 
 					// Emit current dash if non-empty
-					if len(currentDash) > 0 {
-						result = append(result, strokeSubpath{segments: currentDash, closed: false})
-						currentDash = nil
+					if len(r.dashedSegs) > dashStartIdx {
+						r.dashedOffsets = append(r.dashedOffsets, dashStartIdx)
+						dashStartIdx = len(r.dashedSegs)
 					}
 				}
 
@@ -1439,21 +1495,21 @@ func (r *Rasteriser) applyDashPattern(subpaths []strokeSubpath) []strokeSubpath 
 		}
 
 		// Emit final dash if any
-		if len(currentDash) > 0 {
+		if len(r.dashedSegs) > dashStartIdx {
 			// For closed paths, check if we should join first and last dash
-			if sp.closed && startedOn && isOn && len(firstDashSegs) > 0 {
-				// Merge: current dash connects to first dash
-				currentDash = append(currentDash, firstDashSegs...)
-				// Remove the first dash from result if we added it
-				if len(result) > 0 {
-					result = result[1:]
+			if closed && startedOn && isOn && firstDashStart >= 0 {
+				// Merge: append first dash segments to current dash
+				for i := firstDashStart; i < firstDashEnd; i++ {
+					r.dashedSegs = append(r.dashedSegs, r.dashedSegs[i])
+				}
+				// Remove the first dash from offsets if we added it
+				if len(r.dashedOffsets) > 0 && r.dashedOffsets[0] == firstDashStart {
+					r.dashedOffsets = r.dashedOffsets[1:]
 				}
 			}
-			result = append(result, strokeSubpath{segments: currentDash, closed: false})
+			r.dashedOffsets = append(r.dashedOffsets, dashStartIdx)
 		}
 	}
-
-	return result
 }
 
 // fillStrokeOutlines fills all collected stroke polygons as a compound path.
@@ -1495,18 +1551,36 @@ func (r *Rasteriser) fillStrokeOutlines(emit func(y, xMin int, coverage []float3
 	r.FillNonZero(strokePath, emit)
 }
 
-// Reset releases all internal buffers, allowing memory to be reclaimed.
-// The Rasteriser remains usable after Reset; buffers will be reallocated
-// as needed on the next operation.
-func (r *Rasteriser) Reset() {
-	r.cover = nil
-	r.area = nil
-	r.output = nil
-	r.edges = nil
-	r.active = nil
-	r.xMin = nil
-	r.xMax = nil
-	r.stroke = nil
-	r.strokeOffsets = nil
-	r.crossings = nil
+// Reset resets the Rasteriser to its initial state with the given clip rectangle,
+// preserving internal buffer capacity for reuse. This is equivalent to creating
+// a new Rasteriser but without allocations if buffers are already large enough.
+func (r *Rasteriser) Reset(clip rect.Rect) {
+	// Reset public state to defaults
+	r.CTM = matrix.Identity
+	r.Clip = clip
+	r.Flatness = DefaultFlatness
+	r.Width = 1.0
+	r.Cap = graphics.LineCapButt
+	r.Join = graphics.LineJoinMiter
+	r.MiterLimit = DefaultMiterLimit
+	r.Dash = nil
+	r.DashPhase = 0
+
+	// Preserve buffer capacity by slicing to zero length
+	r.cover = r.cover[:0]
+	r.area = r.area[:0]
+	r.output = r.output[:0]
+	r.edges = r.edges[:0]
+	r.active = r.active[:0]
+	r.xMin = r.xMin[:0]
+	r.xMax = r.xMax[:0]
+	r.stroke = r.stroke[:0]
+	r.strokeOffsets = r.strokeOffsets[:0]
+	r.crossings = r.crossings[:0]
+	r.flattenedSegs = r.flattenedSegs[:0]
+	r.flattenedOffsets = r.flattenedOffsets[:0]
+	r.flattenedClosed = r.flattenedClosed[:0]
+	r.degeneratePoints = r.degeneratePoints[:0]
+	r.dashedSegs = r.dashedSegs[:0]
+	r.dashedOffsets = r.dashedOffsets[:0]
 }

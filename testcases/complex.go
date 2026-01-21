@@ -108,25 +108,25 @@ var complexCases = []TestCase{
 func mixedLinesCurves() path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		// Start with a line segment
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: 10, Y: 50}}) {
+		if !moveTo(yield, 10, 50) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: 20, Y: 30}}) {
+		if !lineTo(yield, 20, 30) {
 			return
 		}
 		// Quadratic curve
-		if !yield(path.CmdQuadTo, []vec.Vec2{{X: 32, Y: 10}, {X: 44, Y: 30}}) {
+		if !quadTo(yield, 32, 10, 44, 30) {
 			return
 		}
 		// Line segment
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: 54, Y: 50}}) {
+		if !lineTo(yield, 54, 50) {
 			return
 		}
 		// Cubic curve back to start area
-		if !yield(path.CmdCubeTo, []vec.Vec2{{X: 48, Y: 60}, {X: 16, Y: 60}, {X: 10, Y: 50}}) {
+		if !cubeTo(yield, 48, 60, 16, 60, 10, 50) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -142,51 +142,35 @@ func glyphLikeShape() path.Path {
 		k := r * kappa
 
 		// Start at right of bowl
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx + r, Y: cy}}) {
+		if !moveTo(yield, cx+r, cy) {
 			return
 		}
 		// Top-right quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + r, Y: cy - k},
-			{X: cx + k, Y: cy - r},
-			{X: cx, Y: cy - r},
-		}) {
+		if !cubeTo(yield, cx+r, cy-k, cx+k, cy-r, cx, cy-r) {
 			return
 		}
 		// Top-left quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - k, Y: cy - r},
-			{X: cx - r, Y: cy - k},
-			{X: cx - r, Y: cy},
-		}) {
+		if !cubeTo(yield, cx-k, cy-r, cx-r, cy-k, cx-r, cy) {
 			return
 		}
 		// Bottom-left quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - r, Y: cy + k},
-			{X: cx - k, Y: cy + r},
-			{X: cx, Y: cy + r},
-		}) {
+		if !cubeTo(yield, cx-r, cy+k, cx-k, cy+r, cx, cy+r) {
 			return
 		}
 		// Bottom-right quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + k, Y: cy + r},
-			{X: cx + r, Y: cy + k},
-			{X: cx + r, Y: cy},
-		}) {
+		if !cubeTo(yield, cx+k, cy+r, cx+r, cy+k, cx+r, cy) {
 			return
 		}
 		// Stem going up
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + r, Y: 10}}) {
+		if !lineTo(yield, cx+r, 10) {
 			return
 		}
 		// Across top
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + r - 6, Y: 10}}) {
+		if !lineTo(yield, cx+r-6, 10) {
 			return
 		}
 		// Down to bowl
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + r - 6, Y: cy}}) {
+		if !lineTo(yield, cx+r-6, cy) {
 			return
 		}
 
@@ -195,40 +179,24 @@ func glyphLikeShape() path.Path {
 		ik := ir * kappa
 
 		// Line to start of inner circle (moving inward)
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + ir, Y: cy}}) {
+		if !lineTo(yield, cx+ir, cy) {
 			return
 		}
 		// Draw inner circle counter-clockwise (reverse winding for hole)
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + ir, Y: cy + ik},
-			{X: cx + ik, Y: cy + ir},
-			{X: cx, Y: cy + ir},
-		}) {
+		if !cubeTo(yield, cx+ir, cy+ik, cx+ik, cy+ir, cx, cy+ir) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - ik, Y: cy + ir},
-			{X: cx - ir, Y: cy + ik},
-			{X: cx - ir, Y: cy},
-		}) {
+		if !cubeTo(yield, cx-ik, cy+ir, cx-ir, cy+ik, cx-ir, cy) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - ir, Y: cy - ik},
-			{X: cx - ik, Y: cy - ir},
-			{X: cx, Y: cy - ir},
-		}) {
+		if !cubeTo(yield, cx-ir, cy-ik, cx-ik, cy-ir, cx, cy-ir) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + ik, Y: cy - ir},
-			{X: cx + ir, Y: cy - ik},
-			{X: cx + ir, Y: cy},
-		}) {
+		if !cubeTo(yield, cx+ik, cy-ir, cx+ir, cy-ik, cx+ir, cy) {
 			return
 		}
 
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -246,7 +214,7 @@ func spiralPath(cx, cy, rMin, rMax float64, turns float64) path.Path {
 		// Start point
 		startX := cx + rMin
 		startY := cy
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: startX, Y: startY}}) {
+		if !moveTo(yield, startX, startY) {
 			return
 		}
 
@@ -259,7 +227,7 @@ func spiralPath(cx, cy, rMin, rMax float64, turns float64) path.Path {
 			x := cx + r*math.Cos(angle)
 			y := cy + r*math.Sin(angle)
 
-			if !yield(path.CmdLineTo, []vec.Vec2{{X: x, Y: y}}) {
+			if !lineTo(yield, x, y) {
 				return
 			}
 		}
@@ -278,37 +246,21 @@ func figureEightStroke(cx, cy, size float64) path.Path {
 		topCy := cy - r/2
 
 		// Start at center crossing point
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx, Y: cy}}) {
+		if !moveTo(yield, cx, cy) {
 			return
 		}
 
 		// Upper loop (clockwise)
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + k, Y: cy - r/4},
-			{X: cx + r, Y: topCy - k/2},
-			{X: cx + r, Y: topCy},
-		}) {
+		if !cubeTo(yield, cx+k, cy-r/4, cx+r, topCy-k/2, cx+r, topCy) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + r, Y: topCy - k},
-			{X: cx + k, Y: topCy - r},
-			{X: cx, Y: topCy - r},
-		}) {
+		if !cubeTo(yield, cx+r, topCy-k, cx+k, topCy-r, cx, topCy-r) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - k, Y: topCy - r},
-			{X: cx - r, Y: topCy - k},
-			{X: cx - r, Y: topCy},
-		}) {
+		if !cubeTo(yield, cx-k, topCy-r, cx-r, topCy-k, cx-r, topCy) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - r, Y: topCy + k/2},
-			{X: cx - k, Y: cy - r/4},
-			{X: cx, Y: cy},
-		}) {
+		if !cubeTo(yield, cx-r, topCy+k/2, cx-k, cy-r/4, cx, cy) {
 			return
 		}
 
@@ -316,32 +268,16 @@ func figureEightStroke(cx, cy, size float64) path.Path {
 		botCy := cy + r/2
 
 		// Lower loop (counter-clockwise to cross)
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - k, Y: cy + r/4},
-			{X: cx - r, Y: botCy - k/2},
-			{X: cx - r, Y: botCy},
-		}) {
+		if !cubeTo(yield, cx-k, cy+r/4, cx-r, botCy-k/2, cx-r, botCy) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - r, Y: botCy + k},
-			{X: cx - k, Y: botCy + r},
-			{X: cx, Y: botCy + r},
-		}) {
+		if !cubeTo(yield, cx-r, botCy+k, cx-k, botCy+r, cx, botCy+r) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + k, Y: botCy + r},
-			{X: cx + r, Y: botCy + k},
-			{X: cx + r, Y: botCy},
-		}) {
+		if !cubeTo(yield, cx+k, botCy+r, cx+r, botCy+k, cx+r, botCy) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + r, Y: botCy - k/2},
-			{X: cx + k, Y: cy + r/4},
-			{X: cx, Y: cy},
-		}) {
+		if !cubeTo(yield, cx+r, botCy-k/2, cx+k, cy+r/4, cx, cy) {
 			return
 		}
 	}
@@ -356,30 +292,22 @@ func tightCurve(cx, cy, size float64) path.Path {
 		k := r * kappa
 
 		// Start at left
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - r, Y: cy - size}}) {
+		if !moveTo(yield, cx-r, cy-size) {
 			return
 		}
 		// Down to curve start
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx - r, Y: cy}}) {
+		if !lineTo(yield, cx-r, cy) {
 			return
 		}
 		// Tight U-turn using cubic curves
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - r, Y: cy + k},
-			{X: cx - k, Y: cy + r},
-			{X: cx, Y: cy + r},
-		}) {
+		if !cubeTo(yield, cx-r, cy+k, cx-k, cy+r, cx, cy+r) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + k, Y: cy + r},
-			{X: cx + r, Y: cy + k},
-			{X: cx + r, Y: cy},
-		}) {
+		if !cubeTo(yield, cx+k, cy+r, cx+r, cy+k, cx+r, cy) {
 			return
 		}
 		// Up to end
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + r, Y: cy - size}}) {
+		if !lineTo(yield, cx+r, cy-size) {
 			return
 		}
 	}
@@ -392,7 +320,7 @@ func zigzagPath(x1, cy, x2, amplitude float64) path.Path {
 		width := x2 - x1
 		segWidth := width / float64(segments)
 
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: cy}}) {
+		if !moveTo(yield, x1, cy) {
 			return
 		}
 
@@ -404,7 +332,7 @@ func zigzagPath(x1, cy, x2, amplitude float64) path.Path {
 			} else {
 				y = cy + amplitude
 			}
-			if !yield(path.CmdLineTo, []vec.Vec2{{X: x, Y: y}}) {
+			if !lineTo(yield, x, y) {
 				return
 			}
 		}

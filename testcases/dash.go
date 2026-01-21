@@ -513,50 +513,50 @@ func cornerAngle(x1, y1, cx, cy float64, angleDeg float64) path.Path {
 	y2 := cy - length*math.Sin(angleRad) // y is inverted in screen coords
 
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx, Y: cy}}) {
+		if !lineTo(yield, cx, cy) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}})
+		lineTo(yield, x2, y2)
 	}
 }
 
 // zigzag builds a zigzag path with multiple corners.
 func zigzag(x1, y1, x2, y2, x3, y3, x4, y4, x5, y5 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x3, Y: y3}}) {
+		if !lineTo(yield, x3, y3) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x4, Y: y4}}) {
+		if !lineTo(yield, x4, y4) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x5, Y: y5}})
+		lineTo(yield, x5, y5)
 	}
 }
 
 // closedSquare builds a closed square path starting at (x, y) with given side length.
 func closedSquare(x, y, side float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x, Y: y}}) {
+		if !moveTo(yield, x, y) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x + side, Y: y}}) {
+		if !lineTo(yield, x+side, y) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x + side, Y: y + side}}) {
+		if !lineTo(yield, x+side, y+side) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x, Y: y + side}}) {
+		if !lineTo(yield, x, y+side) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }

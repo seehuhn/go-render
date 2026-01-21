@@ -1075,33 +1075,33 @@ var strokeCases = []TestCase{
 // horizontalLine builds a horizontal line segment.
 func horizontalLine(x1, y, x2 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y}}) {
+		if !moveTo(yield, x1, y) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y}})
+		lineTo(yield, x2, y)
 	}
 }
 
 // corner builds a path with two line segments meeting at a corner.
 func corner(x1, y1, x2, y2, x3, y3 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x3, Y: y3}})
+		lineTo(yield, x3, y3)
 	}
 }
 
 // verticalLine builds a vertical line segment.
 func verticalLine(x, y1, y2 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x, Y: y1}}) {
+		if !moveTo(yield, x, y1) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x, Y: y2}})
+		lineTo(yield, x, y2)
 	}
 }
 
@@ -1112,10 +1112,10 @@ func diagonalLine(cx, cy, angleDeg, length float64) path.Path {
 	dx := math.Cos(angleRad) * length / 2
 	dy := math.Sin(angleRad) * length / 2
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - dx, Y: cy - dy}}) {
+		if !moveTo(yield, cx-dx, cy-dy) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: cx + dx, Y: cy + dy}})
+		lineTo(yield, cx+dx, cy+dy)
 	}
 }
 
@@ -1124,10 +1124,10 @@ func diagonalLine(cx, cy, angleDeg, length float64) path.Path {
 // circle with round caps.
 func zeroLengthClosedPath(x, y float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x, Y: y}}) {
+		if !moveTo(yield, x, y) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -1136,10 +1136,10 @@ func zeroLengthClosedPath(x, y float64) path.Path {
 // that should produce a filled circle with round caps.
 func zeroLengthLinePath(x, y float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x, Y: y}}) {
+		if !moveTo(yield, x, y) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x, Y: y}})
+		lineTo(yield, x, y)
 	}
 }
 
@@ -1148,7 +1148,7 @@ func zeroLengthLinePath(x, y float64) path.Path {
 // shall produce no output."
 func trailingMoveToPath(x, y float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		yield(path.CmdMoveTo, []vec.Vec2{{X: x, Y: y}})
+		moveTo(yield, x, y)
 	}
 }
 
@@ -1171,70 +1171,70 @@ func cornerAtAngle(cx, cy, angleDeg, armLength float64) path.Path {
 	_ = halfAngle // not needed with this approach
 
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx, Y: cy}}) {
+		if !lineTo(yield, cx, cy) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x3, Y: y3}})
+		lineTo(yield, x3, y3)
 	}
 }
 
 // leftTurnCorner builds a corner that turns left (counter-clockwise).
 func leftTurnCorner(cx, cy, armLength float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - armLength, Y: cy}}) {
+		if !moveTo(yield, cx-armLength, cy) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx, Y: cy}}) {
+		if !lineTo(yield, cx, cy) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: cx, Y: cy - armLength}})
+		lineTo(yield, cx, cy-armLength)
 	}
 }
 
 // rightTurnCorner builds a corner that turns right (clockwise).
 func rightTurnCorner(cx, cy, armLength float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx - armLength, Y: cy}}) {
+		if !moveTo(yield, cx-armLength, cy) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx, Y: cy}}) {
+		if !lineTo(yield, cx, cy) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: cx, Y: cy + armLength}})
+		lineTo(yield, cx, cy+armLength)
 	}
 }
 
 // threeSegmentPath builds a path with three line segments (two corners).
 func threeSegmentPath(x1, y1, x2, y2, x3, y3, x4, y4 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x3, Y: y3}}) {
+		if !lineTo(yield, x3, y3) {
 			return
 		}
-		yield(path.CmdLineTo, []vec.Vec2{{X: x4, Y: y4}})
+		lineTo(yield, x4, y4)
 	}
 }
 
 // closedTriangle builds a closed triangular path.
 func closedTriangle(x1, y1, x2, y2, x3, y3 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x2, Y: y2}}) {
+		if !lineTo(yield, x2, y2) {
 			return
 		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: x3, Y: y3}}) {
+		if !lineTo(yield, x3, y3) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }

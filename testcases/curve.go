@@ -235,46 +235,46 @@ var curveCases = []TestCase{
 // quadraticCurve builds a closed shape with a quadratic Bezier curve.
 func quadraticCurve(x1, y1, cx, cy, x2, y2 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdQuadTo, []vec.Vec2{{X: cx, Y: cy}, {X: x2, Y: y2}}) {
+		if !quadTo(yield, cx, cy, x2, y2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
 // quadraticCurveOpen builds an open path with a quadratic Bezier curve (for stroking).
 func quadraticCurveOpen(x1, y1, cx, cy, x2, y2 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		yield(path.CmdQuadTo, []vec.Vec2{{X: cx, Y: cy}, {X: x2, Y: y2}})
+		quadTo(yield, cx, cy, x2, y2)
 	}
 }
 
 // cubicCurve builds a closed shape with a cubic Bezier curve.
 func cubicCurve(x1, y1, c1x, c1y, c2x, c2y, x2, y2 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		if !yield(path.CmdCubeTo, []vec.Vec2{{X: c1x, Y: c1y}, {X: c2x, Y: c2y}, {X: x2, Y: y2}}) {
+		if !cubeTo(yield, c1x, c1y, c2x, c2y, x2, y2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
 // cubicCurveOpen builds an open path with a cubic Bezier curve (for stroking).
 func cubicCurveOpen(x1, y1, c1x, c1y, c2x, c2y, x2, y2 float64) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
-		yield(path.CmdCubeTo, []vec.Vec2{{X: c1x, Y: c1y}, {X: c2x, Y: c2y}, {X: x2, Y: y2}})
+		cubeTo(yield, c1x, c1y, c2x, c2y, x2, y2)
 	}
 }
 
@@ -284,18 +284,18 @@ func sCurveQuadratic(x1, y1, x2, y2 float64) path.Path {
 		midX := (x1 + x2) / 2
 		midY := (y1 + y2) / 2
 
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: x1, Y: y1}}) {
+		if !moveTo(yield, x1, y1) {
 			return
 		}
 		// First quadratic curves up
-		if !yield(path.CmdQuadTo, []vec.Vec2{{X: (x1 + midX) / 2, Y: y1 - 20}, {X: midX, Y: midY}}) {
+		if !quadTo(yield, (x1+midX)/2, y1-20, midX, midY) {
 			return
 		}
 		// Second quadratic curves down
-		if !yield(path.CmdQuadTo, []vec.Vec2{{X: (midX + x2) / 2, Y: y2 + 20}, {X: x2, Y: y2}}) {
+		if !quadTo(yield, (midX+x2)/2, y2+20, x2, y2) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -305,42 +305,26 @@ func circle(cx, cy, r float64) path.Path {
 		k := r * kappa
 
 		// start at right
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx + r, Y: cy}}) {
+		if !moveTo(yield, cx+r, cy) {
 			return
 		}
 		// top-right quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + r, Y: cy - k},
-			{X: cx + k, Y: cy - r},
-			{X: cx, Y: cy - r},
-		}) {
+		if !cubeTo(yield, cx+r, cy-k, cx+k, cy-r, cx, cy-r) {
 			return
 		}
 		// top-left quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - k, Y: cy - r},
-			{X: cx - r, Y: cy - k},
-			{X: cx - r, Y: cy},
-		}) {
+		if !cubeTo(yield, cx-k, cy-r, cx-r, cy-k, cx-r, cy) {
 			return
 		}
 		// bottom-left quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - r, Y: cy + k},
-			{X: cx - k, Y: cy + r},
-			{X: cx, Y: cy + r},
-		}) {
+		if !cubeTo(yield, cx-r, cy+k, cx-k, cy+r, cx, cy+r) {
 			return
 		}
 		// bottom-right quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + k, Y: cy + r},
-			{X: cx + r, Y: cy + k},
-			{X: cx + r, Y: cy},
-		}) {
+		if !cubeTo(yield, cx+k, cy+r, cx+r, cy+k, cx+r, cy) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -351,42 +335,26 @@ func ellipse(cx, cy, rx, ry float64) path.Path {
 		ky := ry * kappa
 
 		// start at right
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx + rx, Y: cy}}) {
+		if !moveTo(yield, cx+rx, cy) {
 			return
 		}
 		// top-right quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + rx, Y: cy - ky},
-			{X: cx + kx, Y: cy - ry},
-			{X: cx, Y: cy - ry},
-		}) {
+		if !cubeTo(yield, cx+rx, cy-ky, cx+kx, cy-ry, cx, cy-ry) {
 			return
 		}
 		// top-left quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - kx, Y: cy - ry},
-			{X: cx - rx, Y: cy - ky},
-			{X: cx - rx, Y: cy},
-		}) {
+		if !cubeTo(yield, cx-kx, cy-ry, cx-rx, cy-ky, cx-rx, cy) {
 			return
 		}
 		// bottom-left quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx - rx, Y: cy + ky},
-			{X: cx - kx, Y: cy + ry},
-			{X: cx, Y: cy + ry},
-		}) {
+		if !cubeTo(yield, cx-rx, cy+ky, cx-kx, cy+ry, cx, cy+ry) {
 			return
 		}
 		// bottom-right quadrant
-		if !yield(path.CmdCubeTo, []vec.Vec2{
-			{X: cx + kx, Y: cy + ry},
-			{X: cx + rx, Y: cy + ky},
-			{X: cx + rx, Y: cy},
-		}) {
+		if !cubeTo(yield, cx+kx, cy+ry, cx+rx, cy+ky, cx+rx, cy) {
 			return
 		}
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
 
@@ -412,57 +380,41 @@ func arc(cx, cy, r float64, startFraction, endFraction float64) path.Path {
 		}
 
 		// Start at center
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: cx, Y: cy}}) {
+		if !moveTo(yield, cx, cy) {
 			return
 		}
 
 		// Line to start of arc (right side)
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: cx + r, Y: cy}}) {
+		if !lineTo(yield, cx+r, cy) {
 			return
 		}
 
 		// Draw the quadrants
 		// top-right quadrant (first)
 		if numQuadrants >= 1 {
-			if !yield(path.CmdCubeTo, []vec.Vec2{
-				{X: cx + r, Y: cy - k},
-				{X: cx + k, Y: cy - r},
-				{X: cx, Y: cy - r},
-			}) {
+			if !cubeTo(yield, cx+r, cy-k, cx+k, cy-r, cx, cy-r) {
 				return
 			}
 		}
 		// top-left quadrant (second)
 		if numQuadrants >= 2 {
-			if !yield(path.CmdCubeTo, []vec.Vec2{
-				{X: cx - k, Y: cy - r},
-				{X: cx - r, Y: cy - k},
-				{X: cx - r, Y: cy},
-			}) {
+			if !cubeTo(yield, cx-k, cy-r, cx-r, cy-k, cx-r, cy) {
 				return
 			}
 		}
 		// bottom-left quadrant (third)
 		if numQuadrants >= 3 {
-			if !yield(path.CmdCubeTo, []vec.Vec2{
-				{X: cx - r, Y: cy + k},
-				{X: cx - k, Y: cy + r},
-				{X: cx, Y: cy + r},
-			}) {
+			if !cubeTo(yield, cx-r, cy+k, cx-k, cy+r, cx, cy+r) {
 				return
 			}
 		}
 		// bottom-right quadrant (fourth)
 		if numQuadrants >= 4 {
-			if !yield(path.CmdCubeTo, []vec.Vec2{
-				{X: cx + k, Y: cy + r},
-				{X: cx + r, Y: cy + k},
-				{X: cx + r, Y: cy},
-			}) {
+			if !cubeTo(yield, cx+k, cy+r, cx+r, cy+k, cx+r, cy) {
 				return
 			}
 		}
 
-		yield(path.CmdClose, nil)
+		closePath(yield)
 	}
 }
