@@ -109,9 +109,9 @@ func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int,
 	switch op := tc.Op.(type) {
 	case testcases.Fill:
 		if op.Rule == testcases.EvenOdd {
-			r.FillEvenOdd(tc.Path.Iter(), emit)
+			r.FillEvenOdd(tc.Path, emit)
 		} else {
-			r.FillNonZero(tc.Path.Iter(), emit)
+			r.FillNonZero(tc.Path, emit)
 		}
 	case testcases.Stroke:
 		r.Width = op.Width
@@ -120,7 +120,7 @@ func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int,
 		r.MiterLimit = op.MiterLimit
 		r.Dash = op.Dash
 		r.DashPhase = op.DashPhase
-		r.Stroke(tc.Path.Iter(), emit)
+		r.Stroke(tc.Path, emit)
 	}
 }
 
@@ -238,18 +238,11 @@ func writeDiffImage(name string, expected, actual []byte, w, h int) {
 // Each pixel X should have coverage (2X+1)/20: 0.05, 0.15, ..., 0.95.
 func TestTriangleCoverage(t *testing.T) {
 	// Build the triangle path in device space
-	trianglePath := func(yield func(path.Command, []vec.Vec2) bool) {
-		if !yield(path.CmdMoveTo, []vec.Vec2{{X: 0, Y: 0}}) {
-			return
-		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: 10, Y: 0}}) {
-			return
-		}
-		if !yield(path.CmdLineTo, []vec.Vec2{{X: 10, Y: 1}}) {
-			return
-		}
-		yield(path.CmdClose, nil)
-	}
+	trianglePath := (&path.Data{}).
+		MoveTo(vec.Vec2{X: 0, Y: 0}).
+		LineTo(vec.Vec2{X: 10, Y: 0}).
+		LineTo(vec.Vec2{X: 10, Y: 1}).
+		Close()
 
 	// Create rasteriser with clip covering the triangle
 	clip := rect.Rect{LLx: 0, LLy: 0, URx: 10, URy: 1}
@@ -315,9 +308,9 @@ func BenchmarkRasteriseAll(b *testing.B) {
 			switch op := tc.Op.(type) {
 			case testcases.Fill:
 				if op.Rule == testcases.EvenOdd {
-					r.FillEvenOdd(tc.Path.Iter(), emit)
+					r.FillEvenOdd(tc.Path, emit)
 				} else {
-					r.FillNonZero(tc.Path.Iter(), emit)
+					r.FillNonZero(tc.Path, emit)
 				}
 			case testcases.Stroke:
 				r.Width = op.Width
@@ -326,7 +319,7 @@ func BenchmarkRasteriseAll(b *testing.B) {
 				r.MiterLimit = op.MiterLimit
 				r.Dash = op.Dash
 				r.DashPhase = op.DashPhase
-				r.Stroke(tc.Path.Iter(), emit)
+				r.Stroke(tc.Path, emit)
 			}
 		}
 	}

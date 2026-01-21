@@ -137,10 +137,9 @@ type Rasteriser struct {
 	active        []int       // indices of active edges (for Approach B)
 	xMin          []int       // per-scanline minimum x with edge contribution
 	xMax          []int       // per-scanline maximum x with edge contribution
-	stroke        []vec.Vec2  // stroke outline vertices (all subpaths contiguous)
-	strokeOffsets []int       // start index of each stroke polygon in stroke[]
-	crossings     []crossing  // reusable buffer for edge/pixel boundary crossings
-	yieldPt       [1]vec.Vec2 // reusable buffer for yielding single points in path iterators
+	stroke        []vec.Vec2 // stroke outline vertices (all subpaths contiguous)
+	strokeOffsets []int      // start index of each stroke polygon in stroke[]
+	crossings     []crossing // reusable buffer for edge/pixel boundary crossings
 
 	// Flattening buffers (for stroke path processing)
 	flattenedSegs    []strokeSegment // all segments from all subpaths, contiguous
@@ -255,7 +254,7 @@ func (r *Rasteriser) flattenCubic(p0, p1, p2, p3 vec.Vec2, emit func(from, to ve
 // Coverage is delivered row-by-row via the emit callback.
 // The coverage slice passed to emit is only valid for the duration
 // of the callback.
-func (r *Rasteriser) FillNonZero(p path.Path, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasteriser) FillNonZero(p *path.Data, emit func(y, xMin int, coverage []float32)) {
 	r.fill(p, fillNonZero, emit)
 }
 
@@ -263,7 +262,7 @@ func (r *Rasteriser) FillNonZero(p path.Path, emit func(y, xMin int, coverage []
 // Coverage is delivered row-by-row via the emit callback.
 // The coverage slice passed to emit is only valid for the duration
 // of the callback.
-func (r *Rasteriser) FillEvenOdd(p path.Path, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasteriser) FillEvenOdd(p *path.Data, emit func(y, xMin int, coverage []float32)) {
 	r.fill(p, fillEvenOdd, emit)
 }
 
@@ -276,7 +275,7 @@ const (
 )
 
 // fill is the internal implementation shared by FillNonZero and FillEvenOdd.
-func (r *Rasteriser) fill(p path.Path, rule fillRule, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasteriser) fill(p *path.Data, rule fillRule, emit func(y, xMin int, coverage []float32)) {
 	// Collect edges from path (returns bounding box clamped to clip)
 	xMin, xMax, yMin, yMax, ok := r.collectEdges(p)
 	if !ok {
@@ -297,7 +296,7 @@ func (r *Rasteriser) fill(p path.Path, rule fillRule, emit func(y, xMin int, cov
 // collectEdges walks the path, transforms to device space, and builds the edge list.
 // Curves are approximated with a single line segment (TODO: implement proper flattening).
 // Returns the bounding box of all edges in device coordinates (clamped to clip).
-func (r *Rasteriser) collectEdges(p path.Path) (xMin, xMax, yMin, yMax int, ok bool) {
+func (r *Rasteriser) collectEdges(p *path.Data) (xMin, xMax, yMin, yMax int, ok bool) {
 	r.edges = r.edges[:0]
 	r.edgeBBoxFirst = true
 
@@ -305,24 +304,29 @@ func (r *Rasteriser) collectEdges(p path.Path) (xMin, xMax, yMin, yMax int, ok b
 	var current vec.Vec2 // current point (user space)
 	var subpath vec.Vec2 // subpath start (user space)
 
-	// Walk the path
-	for cmd, pts := range p {
+	// Walk the path using direct field access (no iterator allocation)
+	coordIdx := 0
+	for _, cmd := range p.Cmds {
 		switch cmd {
 		case path.CmdMoveTo:
-			current = pts[0]
+			current = p.Coords[coordIdx]
 			subpath = current
+			coordIdx++
 
 		case path.CmdLineTo:
-			r.addEdge(current, pts[0])
-			current = pts[0]
+			r.addEdge(current, p.Coords[coordIdx])
+			current = p.Coords[coordIdx]
+			coordIdx++
 
 		case path.CmdQuadTo:
-			r.flattenQuadratic(current, pts[0], pts[1], r.addEdge)
-			current = pts[1]
+			r.flattenQuadratic(current, p.Coords[coordIdx], p.Coords[coordIdx+1], r.addEdge)
+			current = p.Coords[coordIdx+1]
+			coordIdx += 2
 
 		case path.CmdCubeTo:
-			r.flattenCubic(current, pts[0], pts[1], pts[2], r.addEdge)
-			current = pts[2]
+			r.flattenCubic(current, p.Coords[coordIdx], p.Coords[coordIdx+1], p.Coords[coordIdx+2], r.addEdge)
+			current = p.Coords[coordIdx+2]
+			coordIdx += 3
 
 		case path.CmdClose:
 			if current != subpath {
@@ -819,7 +823,7 @@ func (r *Rasteriser) fillScanline(xMin, xMax, yMin, yMax int, rule fillRule, emi
 // Coverage is delivered row-by-row via the emit callback.
 // The coverage slice passed to emit is only valid for the duration
 // of the callback.
-func (r *Rasteriser) Stroke(p path.Path, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasteriser) Stroke(p *path.Data, emit func(y, xMin int, coverage []float32)) {
 	// Flatten path into subpaths (results stored in r.flattenedSegs, etc.)
 	r.flattenPath(p)
 	if len(r.flattenedOffsets) == 0 && len(r.degeneratePoints) == 0 {
@@ -936,7 +940,7 @@ func (r *Rasteriser) getDashedSegments(i int) []strokeSegment {
 //   - r.flattenedOffsets: start index of each subpath in flattenedSegs
 //   - r.flattenedClosed: whether each subpath is closed
 //   - r.degeneratePoints: degenerate subpaths (no orientation)
-func (r *Rasteriser) flattenPath(p path.Path) {
+func (r *Rasteriser) flattenPath(p *path.Data) {
 	// Clear buffers (preserving capacity)
 	r.flattenedSegs = r.flattenedSegs[:0]
 	r.flattenedOffsets = r.flattenedOffsets[:0]
@@ -949,7 +953,9 @@ func (r *Rasteriser) flattenPath(p path.Path) {
 	inSubpath := false
 	sawDrawingCmd := false // tracks if we saw LineTo/QuadTo/CubeTo (for degenerate detection)
 
-	for cmd, pts := range p {
+	// Walk the path using direct field access (no iterator allocation)
+	coordIdx := 0
+	for _, cmd := range p.Cmds {
 		switch cmd {
 		case path.CmdMoveTo:
 			// Close previous subpath if needed
@@ -962,7 +968,8 @@ func (r *Rasteriser) flattenPath(p path.Path) {
 					r.flattenedClosed = append(r.flattenedClosed, false)
 				}
 			}
-			currentPt = pts[0]
+			currentPt = p.Coords[coordIdx]
+			coordIdx++
 			subpathStartPt = currentPt
 			subpathStartIdx = len(r.flattenedSegs)
 			inSubpath = true
@@ -970,34 +977,40 @@ func (r *Rasteriser) flattenPath(p path.Path) {
 
 		case path.CmdLineTo:
 			if !inSubpath {
+				coordIdx++
 				continue
 			}
 			sawDrawingCmd = true
-			r.addFlattenedSegment(currentPt, pts[0])
-			currentPt = pts[0]
+			r.addFlattenedSegment(currentPt, p.Coords[coordIdx])
+			currentPt = p.Coords[coordIdx]
+			coordIdx++
 
 		case path.CmdQuadTo:
 			if !inSubpath {
+				coordIdx += 2
 				continue
 			}
 			sawDrawingCmd = true
 			p0 := currentPt
-			p1 := pts[0] // control point
-			p2 := pts[1] // endpoint
+			p1 := p.Coords[coordIdx]   // control point
+			p2 := p.Coords[coordIdx+1] // endpoint
 			r.flattenQuadratic(p0, p1, p2, r.addFlattenedSegment)
 			currentPt = p2
+			coordIdx += 2
 
 		case path.CmdCubeTo:
 			if !inSubpath {
+				coordIdx += 3
 				continue
 			}
 			sawDrawingCmd = true
 			p0 := currentPt
-			p1 := pts[0] // control point 1
-			p2 := pts[1] // control point 2
-			p3 := pts[2] // endpoint
+			p1 := p.Coords[coordIdx]   // control point 1
+			p2 := p.Coords[coordIdx+1] // control point 2
+			p3 := p.Coords[coordIdx+2] // endpoint
 			r.flattenCubic(p0, p1, p2, p3, r.addFlattenedSegment)
 			currentPt = p3
+			coordIdx += 3
 
 		case path.CmdClose:
 			if inSubpath {
@@ -1519,36 +1532,70 @@ func (r *Rasteriser) fillStrokeOutlines(emit func(y, xMin int, coverage []float3
 		return
 	}
 
-	// Build compound path from all stroke polygons
-	strokePath := func(yield func(path.Command, []vec.Vec2) bool) {
-		for i, start := range r.strokeOffsets {
-			// Determine end of this polygon
-			var end int
-			if i+1 < len(r.strokeOffsets) {
-				end = r.strokeOffsets[i+1]
-			} else {
-				end = len(r.stroke)
-			}
-			poly := r.stroke[start:end]
-
-			r.yieldPt[0] = poly[0]
-			if !yield(path.CmdMoveTo, r.yieldPt[:]) {
-				return
-			}
-			for j := 1; j < len(poly); j++ {
-				r.yieldPt[0] = poly[j]
-				if !yield(path.CmdLineTo, r.yieldPt[:]) {
-					return
-				}
-			}
-			if !yield(path.CmdClose, nil) {
-				return
-			}
-		}
+	// Collect edges directly from stroke polygons (no intermediate path allocation)
+	xMin, xMax, yMin, yMax, ok := r.collectStrokeEdges()
+	if !ok {
+		return
 	}
 
-	// Use the fill infrastructure with nonzero winding rule
-	r.FillNonZero(strokePath, emit)
+	// Choose approach based on bounding box size
+	width := xMax - xMin
+	height := yMax - yMin
+
+	if width*height < r.smallPathThreshold {
+		r.fill2D(xMin, xMax, yMin, yMax, fillNonZero, emit)
+	} else {
+		r.fillScanline(xMin, xMax, yMin, yMax, fillNonZero, emit)
+	}
+}
+
+// collectStrokeEdges builds the edge list directly from stroke polygons.
+// This avoids creating an intermediate path representation.
+func (r *Rasteriser) collectStrokeEdges() (xMin, xMax, yMin, yMax int, ok bool) {
+	r.edges = r.edges[:0]
+	r.edgeBBoxFirst = true
+
+	for i, start := range r.strokeOffsets {
+		// Determine end of this polygon
+		var end int
+		if i+1 < len(r.strokeOffsets) {
+			end = r.strokeOffsets[i+1]
+		} else {
+			end = len(r.stroke)
+		}
+		poly := r.stroke[start:end]
+		if len(poly) < 2 {
+			continue
+		}
+
+		// Add edges for each segment
+		for j := 1; j < len(poly); j++ {
+			r.addEdge(poly[j-1], poly[j])
+		}
+		// Close the polygon
+		r.addEdge(poly[len(poly)-1], poly[0])
+	}
+
+	if len(r.edges) == 0 {
+		return 0, 0, 0, 0, false
+	}
+
+	// Clamp to clip bounds and convert to integers
+	clipXMin := int(r.Clip.LLx)
+	clipXMax := int(r.Clip.URx)
+	clipYMin := int(r.Clip.LLy)
+	clipYMax := int(r.Clip.URy)
+
+	xMin = max(int(math.Floor(r.edgeDevXMin)), clipXMin)
+	xMax = min(int(math.Floor(r.edgeDevXMax))+1, clipXMax)
+	yMin = max(int(math.Floor(r.edgeDevYMin)), clipYMin)
+	yMax = min(int(math.Floor(r.edgeDevYMax))+1, clipYMax)
+
+	if xMin >= xMax || yMin >= yMax {
+		return 0, 0, 0, 0, false
+	}
+
+	return xMin, xMax, yMin, yMax, true
 }
 
 // Reset resets the Rasteriser to its initial state with the given clip rectangle,

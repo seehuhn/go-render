@@ -36,7 +36,7 @@ func BenchmarkRasteriserO(b *testing.B) {
 
 			for b.Loop() {
 				r.Reset(clip)
-				r.FillEvenOdd(oPath.Iter(), func(y, xMin int, coverage []float32) {
+				r.FillEvenOdd(oPath, func(y, xMin int, coverage []float32) {
 					row := dst.Pix[y*dst.Stride+xMin:]
 					for i, c := range coverage {
 						row[i] = uint8(c * 255)
