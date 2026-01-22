@@ -51,8 +51,6 @@ func BenchmarkRasterizerMethodA(b *testing.B) {
 			b.ReportAllocs()
 
 			for b.Loop() {
-				r.Reset(clip)
-				r.smallPathThreshold = 1 << 30 // Reset clears it
 				r.FillEvenOdd(oPath, func(y, xMin int, coverage []float32) {
 					row := dst.Pix[y*dst.Stride+xMin:]
 					for i, c := range coverage {
@@ -86,8 +84,6 @@ func BenchmarkRasterizerMethodB(b *testing.B) {
 			b.ReportAllocs()
 
 			for b.Loop() {
-				r.Reset(clip)
-				r.smallPathThreshold = 0 // Reset clears it
 				r.FillEvenOdd(oPath, func(y, xMin int, coverage []float32) {
 					row := dst.Pix[y*dst.Stride+xMin:]
 					for i, c := range coverage {

@@ -717,35 +717,6 @@ func (r *Rasterizer) fillLargePath(xMin, xMax, yMin, yMax int, rule fillRule, em
 	}
 }
 
-// Reset restores default state with a new clip rectangle, preserving buffer
-// capacity. Equivalent to NewRasterizer but avoids allocation.
-func (r *Rasterizer) Reset(clip rect.Rect) {
-	// Reset public state to defaults
-	r.CTM = matrix.Identity
-	r.Clip = clip
-	r.Flatness = defaultFlatness
-	r.Width = 1.0
-	r.Cap = graphics.LineCapButt
-	r.Join = graphics.LineJoinMiter
-	r.MiterLimit = defaultMiterLimit
-	r.Dash = nil
-	r.DashPhase = 0
-
-	// Preserve buffer capacity by slicing to zero length
-	r.cover = r.cover[:0]
-	r.area = r.area[:0]
-	r.edges = r.edges[:0]
-	r.activeIdx = r.activeIdx[:0]
-	r.rowHasEdges = r.rowHasEdges[:0]
-	r.stroke = r.stroke[:0]
-	r.strokeOffsets = r.strokeOffsets[:0]
-	r.segs = r.segs[:0]
-	r.segsOffsets = r.segsOffsets[:0]
-	r.subpathClosed = r.subpathClosed[:0]
-	r.degeneratePoints = r.degeneratePoints[:0]
-	r.dashedSegs = r.dashedSegs[:0]
-	r.dashedSegsOffsets = r.dashedSegsOffsets[:0]
-}
 
 // Default values for rasterizer parameters.
 const (

@@ -51,7 +51,6 @@ The rasterizer computes signed trapezoidal area contributions per pixel:
 - `FillNonZero(path, emit)` — Fill using nonzero winding rule
 - `FillEvenOdd(path, emit)` — Fill using even-odd rule
 - `Stroke(path, emit)` — Stroke using Width, Cap, Join, MiterLimit, Dash, DashPhase
-- `Reset(clip)` — Reset state, preserving buffer capacity
 
 ### Dependencies
 
