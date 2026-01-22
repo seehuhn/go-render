@@ -107,10 +107,10 @@ var complexCases = []TestCase{
 func mixedLinesCurves() *path.Data {
 	return (&path.Data{}).
 		MoveTo(pt(10, 50)).
-		LineTo(pt(20, 30)).                             // Line segment
-		QuadTo(pt(32, 10), pt(44, 30)).                 // Quadratic curve
-		LineTo(pt(54, 50)).                             // Line segment
-		CubeTo(pt(48, 60), pt(16, 60), pt(10, 50)).     // Cubic curve back to start area
+		LineTo(pt(20, 30)).                         // Line segment
+		QuadTo(pt(32, 10), pt(44, 30)).             // Quadratic curve
+		LineTo(pt(54, 50)).                         // Line segment
+		CubeTo(pt(48, 60), pt(16, 60), pt(10, 50)). // Cubic curve back to start area
 		Close()
 }
 
@@ -127,13 +127,13 @@ func glyphLikeShape() *path.Data {
 	// Start at right of bowl
 	p := (&path.Data{}).
 		MoveTo(pt(cx+r, cy)).
-		CubeTo(pt(cx+r, cy-k), pt(cx+k, cy-r), pt(cx, cy-r)).   // Top-right quadrant
-		CubeTo(pt(cx-k, cy-r), pt(cx-r, cy-k), pt(cx-r, cy)).   // Top-left quadrant
-		CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r)).   // Bottom-left quadrant
-		CubeTo(pt(cx+k, cy+r), pt(cx+r, cy+k), pt(cx+r, cy)).   // Bottom-right quadrant
-		LineTo(pt(cx+r, 10)).     // Stem going up
-		LineTo(pt(cx+r-6, 10)).   // Across top
-		LineTo(pt(cx+r-6, cy))    // Down to bowl
+		CubeTo(pt(cx+r, cy-k), pt(cx+k, cy-r), pt(cx, cy-r)). // Top-right quadrant
+		CubeTo(pt(cx-k, cy-r), pt(cx-r, cy-k), pt(cx-r, cy)). // Top-left quadrant
+		CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r)). // Bottom-left quadrant
+		CubeTo(pt(cx+k, cy+r), pt(cx+r, cy+k), pt(cx+r, cy)). // Bottom-right quadrant
+		LineTo(pt(cx+r, 10)).                                 // Stem going up
+		LineTo(pt(cx+r-6, 10)).                               // Across top
+		LineTo(pt(cx+r-6, cy))                                // Down to bowl
 
 	// Inner counter (hole in the bowl)
 	ir := 8.0
@@ -222,10 +222,10 @@ func tightCurve(cx, cy, size float64) *path.Data {
 
 	return (&path.Data{}).
 		MoveTo(pt(cx-r, cy-size)).
-		LineTo(pt(cx-r, cy)).                                   // Down to curve start
-		CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r)).   // Tight U-turn using cubic curves
+		LineTo(pt(cx-r, cy)).                                 // Down to curve start
+		CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r)). // Tight U-turn using cubic curves
 		CubeTo(pt(cx+k, cy+r), pt(cx+r, cy+k), pt(cx+r, cy)).
-		LineTo(pt(cx+r, cy-size))                               // Up to end
+		LineTo(pt(cx+r, cy-size)) // Up to end
 }
 
 // zigzagPath builds a zigzag pattern where adjacent thick strokes overlap.

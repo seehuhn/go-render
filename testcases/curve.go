@@ -278,11 +278,11 @@ func circle(cx, cy, r float64) *path.Data {
 	k := r * kappa
 
 	return (&path.Data{}).
-		MoveTo(pt(cx+r, cy)).                                   // start at right
-		CubeTo(pt(cx+r, cy-k), pt(cx+k, cy-r), pt(cx, cy-r)).   // top-right quadrant
-		CubeTo(pt(cx-k, cy-r), pt(cx-r, cy-k), pt(cx-r, cy)).   // top-left quadrant
-		CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r)).   // bottom-left quadrant
-		CubeTo(pt(cx+k, cy+r), pt(cx+r, cy+k), pt(cx+r, cy)).   // bottom-right quadrant
+		MoveTo(pt(cx+r, cy)).                                 // start at right
+		CubeTo(pt(cx+r, cy-k), pt(cx+k, cy-r), pt(cx, cy-r)). // top-right quadrant
+		CubeTo(pt(cx-k, cy-r), pt(cx-r, cy-k), pt(cx-r, cy)). // top-left quadrant
+		CubeTo(pt(cx-r, cy+k), pt(cx-k, cy+r), pt(cx, cy+r)). // bottom-left quadrant
+		CubeTo(pt(cx+k, cy+r), pt(cx+r, cy+k), pt(cx+r, cy)). // bottom-right quadrant
 		Close()
 }
 
@@ -292,11 +292,11 @@ func ellipse(cx, cy, rx, ry float64) *path.Data {
 	ky := ry * kappa
 
 	return (&path.Data{}).
-		MoveTo(pt(cx+rx, cy)).                                      // start at right
-		CubeTo(pt(cx+rx, cy-ky), pt(cx+kx, cy-ry), pt(cx, cy-ry)).  // top-right quadrant
-		CubeTo(pt(cx-kx, cy-ry), pt(cx-rx, cy-ky), pt(cx-rx, cy)).  // top-left quadrant
-		CubeTo(pt(cx-rx, cy+ky), pt(cx-kx, cy+ry), pt(cx, cy+ry)).  // bottom-left quadrant
-		CubeTo(pt(cx+kx, cy+ry), pt(cx+rx, cy+ky), pt(cx+rx, cy)).  // bottom-right quadrant
+		MoveTo(pt(cx+rx, cy)).                                     // start at right
+		CubeTo(pt(cx+rx, cy-ky), pt(cx+kx, cy-ry), pt(cx, cy-ry)). // top-right quadrant
+		CubeTo(pt(cx-kx, cy-ry), pt(cx-rx, cy-ky), pt(cx-rx, cy)). // top-left quadrant
+		CubeTo(pt(cx-rx, cy+ky), pt(cx-kx, cy+ry), pt(cx, cy+ry)). // bottom-left quadrant
+		CubeTo(pt(cx+kx, cy+ry), pt(cx+rx, cy+ky), pt(cx+rx, cy)). // bottom-right quadrant
 		Close()
 }
 

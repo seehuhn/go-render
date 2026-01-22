@@ -17,6 +17,7 @@
 package render
 
 import (
+	"cmp"
 	"math"
 	"slices"
 
@@ -27,63 +28,11 @@ import (
 	"seehuhn.de/go/pdf/graphics"
 )
 
-// Default values for rasteriser parameters.
-const (
-	// DefaultFlatness is the default curve flattening tolerance in device
-	// pixels. Values of 0.25-1.0 are typical; 0.25 is below the threshold
-	// of visual perception.
-	DefaultFlatness = 0.25
-
-	// DefaultMiterLimit is the default miter limit, matching PDF/PostScript.
-	// This converts joins to bevels when the interior angle is less than
-	// approximately 11.5 degrees.
-	DefaultMiterLimit = 10.0
-)
-
-// Numerical tolerances for the rasteriser.
-const (
-	// horizontalEdgeThreshold is the minimum vertical extent for an edge
-	// to contribute to coverage. Edges with |y1 - y0| below this threshold
-	// are skipped as horizontal.
-	horizontalEdgeThreshold = 1e-10
-
-	// smallPathThreshold is the maximum bounding box area (in pixels) for
-	// using 2D buffers (Approach A). Paths with larger bounding boxes use
-	// the active edge list (Approach B).
-	// TODO: tune this threshold based on profiling
-	smallPathThreshold = 65536
-
-	// zeroLengthThreshold is the minimum length for a stroke segment.
-	// Segments shorter than this are skipped.
-	zeroLengthThreshold = 1e-10
-
-	// collinearityThreshold is used to detect nearly collinear segments
-	// where no join is needed.
-	collinearityThreshold = 1e-6
-
-	// cuspCosineThreshold is the cosine threshold for detecting cusps
-	// (path doubling back on itself). cos(179.43°) ≈ -0.9999
-	cuspCosineThreshold = -0.9999
-)
-
 // edge represents a line segment in device coordinates.
 type edge struct {
 	x0, y0 float64 // start point
 	x1, y1 float64 // end point
 	dxdy   float64 // (x1-x0)/(y1-y0), precomputed for x-intercept calculation
-}
-
-// crossing represents a point where an edge crosses a pixel boundary.
-type crossing struct {
-	y float64
-	x float64
-}
-
-// strokeSegment represents a line segment with precomputed geometry for stroking.
-type strokeSegment struct {
-	A, B vec.Vec2 // endpoints in user space
-	T    vec.Vec2 // unit tangent (A→B direction)
-	N    vec.Vec2 // unit normal (90° CCW from T)
 }
 
 // Rasteriser converts vector paths to pixel coverage values.
@@ -130,21 +79,20 @@ type Rasteriser struct {
 	smallPathThreshold int
 
 	// Internal buffers (reused across calls)
-	cover         []float32   // coverage accumulation: cover change per pixel
-	area          []float32   // coverage accumulation: area within pixel
-	output        []float32   // final coverage values for callback
-	edges         []edge      // edge list for current path (device coordinates)
-	active        []int       // indices of active edges (for Approach B)
-	xMin          []int       // per-scanline minimum x with edge contribution
-	xMax          []int       // per-scanline maximum x with edge contribution
+	cover         []float32  // coverage accumulation: cover change per pixel; reused as output
+	area          []float32  // coverage accumulation: area within pixel
+	edges         []edge     // edge list for current path (device coordinates)
+	activeIdx     []int      // indices of active edges
+	rowXMin       []int      // per-scanline minimum x with edge contribution
+	rowXMax       []int      // per-scanline maximum x with edge contribution
 	stroke        []vec.Vec2 // stroke outline vertices (all subpaths contiguous)
 	strokeOffsets []int      // start index of each stroke polygon in stroke[]
-	crossings     []crossing // reusable buffer for edge/pixel boundary crossings
+	crossings     []float64  // y values where edge crosses pixel boundaries
 
 	// Flattening buffers (for stroke path processing)
-	flattenedSegs    []strokeSegment // all segments from all subpaths, contiguous
-	flattenedOffsets []int           // start index of each subpath in flattenedSegs
-	flattenedClosed  []bool          // whether each subpath is closed
+	segs             []strokeSegment // all segments from all subpaths, contiguous
+	segsOffsets      []int           // start index of each subpath in segments
+	subpathClosed    []bool          // whether each subpath is closed
 	degeneratePoints []vec.Vec2      // degenerate subpaths (no orientation)
 
 	// Edge collection state (used by collectEdges/addEdge)
@@ -155,21 +103,22 @@ type Rasteriser struct {
 	edgeDevYMax   float64
 
 	// Dash pattern output buffers
-	dashedSegs    []strokeSegment // all dashed segments, contiguous
-	dashedOffsets []int           // start index of each dashed subpath
+	dashedSegs        []strokeSegment // all dashed segments, contiguous
+	dashedSegsOffsets []int           // start index of each dashed subpath
 }
 
 // NewRasteriser creates a new Rasteriser with the given clip rectangle
 // and PDF default values for all other parameters.
 func NewRasteriser(clip rect.Rect) *Rasteriser {
 	return &Rasteriser{
-		CTM:                matrix.Identity,
-		Clip:               clip,
-		Flatness:           DefaultFlatness,
-		Width:              1.0,
-		Cap:                graphics.LineCapButt,
-		Join:               graphics.LineJoinMiter,
-		MiterLimit:         DefaultMiterLimit,
+		CTM:        matrix.Identity,
+		Clip:       clip,
+		Flatness:   defaultFlatness,
+		Width:      1.0,
+		Cap:        graphics.LineCapButt,
+		Join:       graphics.LineJoinMiter,
+		MiterLimit: defaultMiterLimit,
+
 		smallPathThreshold: smallPathThreshold,
 	}
 }
@@ -277,7 +226,7 @@ const (
 // fill is the internal implementation shared by FillNonZero and FillEvenOdd.
 func (r *Rasteriser) fill(p *path.Data, rule fillRule, emit func(y, xMin int, coverage []float32)) {
 	// Collect edges from path (returns bounding box clamped to clip)
-	xMin, xMax, yMin, yMax, ok := r.collectEdges(p)
+	xMin, xMax, yMin, yMax, ok := r.collectPathEdges(p)
 	if !ok {
 		return // empty or degenerate path
 	}
@@ -287,16 +236,15 @@ func (r *Rasteriser) fill(p *path.Data, rule fillRule, emit func(y, xMin int, co
 	height := yMax - yMin
 
 	if width*height < r.smallPathThreshold {
-		r.fill2D(xMin, xMax, yMin, yMax, rule, emit)
+		r.fillSmallPath(xMin, xMax, yMin, yMax, rule, emit)
 	} else {
-		r.fillScanline(xMin, xMax, yMin, yMax, rule, emit)
+		r.fillLargePath(xMin, xMax, yMin, yMax, rule, emit)
 	}
 }
 
-// collectEdges walks the path, transforms to device space, and builds the edge list.
-// Curves are approximated with a single line segment (TODO: implement proper flattening).
+// collectPathEdges walks the path, transforms to device space, and builds the edge list.
 // Returns the bounding box of all edges in device coordinates (clamped to clip).
-func (r *Rasteriser) collectEdges(p *path.Data) (xMin, xMax, yMin, yMax int, ok bool) {
+func (r *Rasteriser) collectPathEdges(p *path.Data) (xMin, xMax, yMin, yMax int, ok bool) {
 	r.edges = r.edges[:0]
 	r.edgeBBoxFirst = true
 
@@ -396,6 +344,23 @@ func (r *Rasteriser) addEdge(p0, p1 vec.Vec2) {
 	}
 }
 
+// Coverage accumulation model:
+//
+// For each pixel, we track two values:
+//   cover: signed vertical extent of edges crossing this pixel column
+//   area:  horizontal position weighting (how far right the crossing is)
+//
+// An edge crossing a pixel contributes:
+//   cover = sign * dy   (where sign is +1 for downward, -1 for upward)
+//   area  = cover * (1 - xFrac)   (where xFrac is the horizontal position within the pixel)
+//
+// Final coverage is computed by integrateScanline:
+//   pixel_coverage = accumulated_cover + area[i]
+//   accumulated_cover += cover[i]   (carry forward for next pixel)
+//
+// This computes the signed area of the path within each pixel, which gives
+// anti-aliased coverage values when clamped to [0,1] (nonzero) or folded (even-odd).
+
 // accumulateEdge adds a single edge's contribution to the cover and area buffers.
 // The buffers are indexed by (x - bboxXMin), where bboxXMin/bboxXMax define the buffer range.
 // For edges spanning multiple pixels horizontally, this function splits the edge at pixel
@@ -449,7 +414,7 @@ func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 
 	// For vertical edges or edges within a single pixel column
 	if pixLeft == pixRight {
-		r.accumulateSinglePixel(e, yTop, yBot, sign, pixLeft, cover, area, bboxXMin, bboxXMax)
+		r.accumulateEdgeInColumn(e, yTop, yBot, sign, pixLeft, cover, area, bboxXMin, bboxXMax)
 		return
 	}
 
@@ -458,36 +423,27 @@ func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 	// Then process each segment between consecutive crossings
 	dydx := 1 / e.dxdy
 
-	// Build list of (y, x) crossing points, sorted by y (reuse buffer)
+	// Build list of y values where edge crosses pixel boundaries (reuse buffer)
 	r.crossings = r.crossings[:0]
 
-	// Add start and end points
-	r.crossings = append(r.crossings, crossing{yTop, xAtYTop})
-	r.crossings = append(r.crossings, crossing{yBot, xAtYBot})
+	// Add start and end y values
+	r.crossings = append(r.crossings, yTop, yBot)
 
-	// Add crossings at integer x boundaries
+	// Add y values at integer x boundaries
 	for x := pixLeft + 1; x <= pixRight; x++ {
 		yAtX := e.y0 + dydx*(float64(x)-e.x0)
 		if yAtX > yTop && yAtX < yBot {
-			r.crossings = append(r.crossings, crossing{yAtX, float64(x)})
+			r.crossings = append(r.crossings, yAtX)
 		}
 	}
 
 	// Sort crossings by y
-	slices.SortFunc(r.crossings, func(a, b crossing) int {
-		if a.y < b.y {
-			return -1
-		}
-		if a.y > b.y {
-			return 1
-		}
-		return 0
-	})
+	slices.Sort(r.crossings)
 
 	// Process each segment between consecutive crossings
 	for i := range len(r.crossings) - 1 {
-		y0 := r.crossings[i].y
-		y1 := r.crossings[i+1].y
+		y0 := r.crossings[i]
+		y1 := r.crossings[i+1]
 		segDy := y1 - y0
 		if segDy <= 0 {
 			continue
@@ -517,8 +473,8 @@ func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 	}
 }
 
-// accumulateSinglePixel handles an edge segment that falls within a single pixel column.
-func (r *Rasteriser) accumulateSinglePixel(e *edge, yTop, yBot float64, sign float32, pix int, cover, area []float32, bboxXMin, bboxXMax int) {
+// accumulateEdgeInColumn handles an edge segment that falls within a single pixel column.
+func (r *Rasteriser) accumulateEdgeInColumn(e *edge, yTop, yBot float64, sign float32, pix int, cover, area []float32, bboxXMin, bboxXMax int) {
 	coverVal := sign * float32(yBot-yTop)
 
 	if pix < bboxXMin {
@@ -541,46 +497,43 @@ func (r *Rasteriser) accumulateSinglePixel(e *edge, yTop, yBot float64, sign flo
 	area[idx] += areaVal
 }
 
-// integrateScanline converts accumulated cover/area to final coverage values.
-// xMin and xMax are the pixel range that was touched.
-func (r *Rasteriser) integrateScanline(cover, area []float32, xMin, xMax int, rule fillRule) []float32 {
-	width := xMax - xMin + 1
-	if cap(r.output) < width {
-		r.output = make([]float32, width)
-	} else {
-		r.output = r.output[:width]
-	}
-
+// integrateScanlineNonZero converts accumulated cover/area to final coverage
+// values using the nonzero winding rule. The cover slice is modified in place.
+func integrateScanlineNonZero(cover, area []float32) {
 	var accum float32
-	for i := range width {
+	for i := range cover {
 		raw := accum + area[i]
 		accum += cover[i]
 
-		var cov float32
-		switch rule {
-		case fillNonZero:
-			// clamp(abs(raw), 0, 1)
-			if raw < 0 {
-				cov = -raw
-			} else {
-				cov = raw
-			}
-			if cov > 1 {
-				cov = 1
-			}
-		case fillEvenOdd:
-			// 1 - abs(1 - mod(abs(raw), 2))
-			if raw < 0 {
-				raw = -raw
-			}
-			// mod(raw, 2) using floor
-			mod := raw - 2*float32(int(raw/2))
-			cov = 1 - abs32(1-mod)
+		// clamp(abs(raw), 0, 1)
+		cov := raw
+		if raw < 0 {
+			cov = -raw
 		}
-		r.output[i] = cov
+		if cov > 1 {
+			cov = 1
+		}
+		cover[i] = cov
 	}
+}
 
-	return r.output
+// integrateScanlineEvenOdd converts accumulated cover/area to final coverage
+// values using the even-odd fill rule. The cover slice is modified in place.
+func integrateScanlineEvenOdd(cover, area []float32) {
+	var accum float32
+	for i := range cover {
+		raw := accum + area[i]
+		accum += cover[i]
+
+		// 1 - abs(1 - mod(abs(raw), 2))
+		if raw < 0 {
+			raw = -raw
+		}
+		// mod(raw, 2) using floor
+		mod := raw - 2*float32(int(raw/2))
+		cov := 1 - abs32(1-mod)
+		cover[i] = cov
+	}
 }
 
 // abs32 returns the absolute value of a float32.
@@ -591,40 +544,45 @@ func abs32(x float32) float32 {
 	return x
 }
 
-// fill2D rasterises using 2D buffers (Approach A).
+// trimZeros returns the non-zero portion of coverage and its starting offset.
+// Returns nil, 0 if coverage is entirely zero.
+func trimZeros(coverage []float32) (trimmed []float32, offset int) {
+	n := len(coverage)
+	lo := 0
+	for lo < n && coverage[lo] == 0 {
+		lo++
+	}
+	if lo == n {
+		return nil, 0
+	}
+	hi := n - 1
+	for hi > lo && coverage[hi] == 0 {
+		hi--
+	}
+	return coverage[lo : hi+1], lo
+}
+
+// fillSmallPath rasterises using 2D buffers (Approach A).
 // Used for small paths where width*height < smallPathThreshold.
 // xMin, xMax, yMin, yMax define the path's bounding box (already clamped to clip).
-func (r *Rasteriser) fill2D(xMin, xMax, yMin, yMax int, rule fillRule, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasteriser) fillSmallPath(xMin, xMax, yMin, yMax int, rule fillRule, emit func(y, xMin int, coverage []float32)) {
 	width := xMax - xMin
 	height := yMax - yMin
 
-	// Ensure 2D buffers are large enough
+	// Ensure 2D buffers are large enough and zero them
 	size := width * height
-	if cap(r.cover) < size {
-		r.cover = make([]float32, size)
-		r.area = make([]float32, size)
-	} else {
-		r.cover = r.cover[:size]
-		r.area = r.area[:size]
-		// Zero the buffers
-		for i := range r.cover {
-			r.cover[i] = 0
-			r.area[i] = 0
-		}
-	}
+	r.cover = slices.Grow(r.cover[:0], size)[:size]
+	r.area = slices.Grow(r.area[:0], size)[:size]
+	clear(r.cover)
+	clear(r.area)
 
 	// Ensure xMin/xMax tracking buffers are large enough
-	if cap(r.xMin) < height {
-		r.xMin = make([]int, height)
-		r.xMax = make([]int, height)
-	} else {
-		r.xMin = r.xMin[:height]
-		r.xMax = r.xMax[:height]
-	}
+	r.rowXMin = slices.Grow(r.rowXMin[:0], height)[:height]
+	r.rowXMax = slices.Grow(r.rowXMax[:0], height)[:height]
 	// Initialize bounds to "no edges"
-	for i := range r.xMin {
-		r.xMin[i] = width
-		r.xMax[i] = -1
+	for i := range r.rowXMin {
+		r.rowXMin[i] = width
+		r.rowXMax[i] = -1
 	}
 
 	// Process all edges into 2D buffers
@@ -659,18 +617,18 @@ func (r *Rasteriser) fill2D(xMin, xMax, yMin, yMax int, rule fillRule, emit func
 			x = max(x, xMin)
 			x = min(x, xMax-1)
 			xIdx := x - xMin
-			if xIdx < r.xMin[row] {
-				r.xMin[row] = xIdx
+			if xIdx < r.rowXMin[row] {
+				r.rowXMin[row] = xIdx
 			}
-			if xIdx > r.xMax[row] {
-				r.xMax[row] = xIdx
+			if xIdx > r.rowXMax[row] {
+				r.rowXMax[row] = xIdx
 			}
 		}
 	}
 
 	// Integrate and emit each row
 	for row := range height {
-		if r.xMax[row] < 0 {
+		if r.rowXMax[row] < 0 {
 			continue // no edges touched this row
 		}
 
@@ -678,54 +636,39 @@ func (r *Rasteriser) fill2D(xMin, xMax, yMin, yMax int, rule fillRule, emit func
 		rowOffset := row * width
 
 		// Integrate the full width (cover accumulates from left)
-		coverage := r.integrateScanline(r.cover[rowOffset:rowOffset+width], r.area[rowOffset:rowOffset+width], 0, width-1, rule)
+		coverage := r.cover[rowOffset : rowOffset+width]
+		if rule == fillNonZero {
+			integrateScanlineNonZero(coverage, r.area[rowOffset:rowOffset+width])
+		} else {
+			integrateScanlineEvenOdd(coverage, r.area[rowOffset:rowOffset+width])
+		}
 
 		// Emit only the non-zero portion
-		// Find actual xMin/xMax with non-zero coverage
-		outXMin := 0
-		outXMax := width - 1
-		for outXMin < width && coverage[outXMin] == 0 {
-			outXMin++
-		}
-		for outXMax > outXMin && coverage[outXMax] == 0 {
-			outXMax--
-		}
-		if outXMin <= outXMax {
-			emit(y, xMin+outXMin, coverage[outXMin:outXMax+1])
+		if trimmed, offset := trimZeros(coverage); trimmed != nil {
+			emit(y, xMin+offset, trimmed)
 		}
 	}
 }
 
-// fillScanline rasterises using 1D buffers and an active edge list (Approach B).
+// fillLargePath rasterises using 1D buffers and an active edge list (Approach B).
 // Used for large paths where width*height >= smallPathThreshold.
 // xMin, xMax, yMin, yMax define the path's bounding box (already clamped to clip).
-func (r *Rasteriser) fillScanline(xMin, xMax, yMin, yMax int, rule fillRule, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasteriser) fillLargePath(xMin, xMax, yMin, yMax int, rule fillRule, emit func(y, xMin int, coverage []float32)) {
 	width := xMax - xMin
 
 	// Ensure 1D buffers are large enough
-	if cap(r.cover) < width {
-		r.cover = make([]float32, width)
-		r.area = make([]float32, width)
-	} else {
-		r.cover = r.cover[:width]
-		r.area = r.area[:width]
-	}
+	r.cover = slices.Grow(r.cover[:0], width)[:width]
+	r.area = slices.Grow(r.area[:0], width)[:width]
 
 	// Sort edges by y_min
 	slices.SortFunc(r.edges, func(a, b edge) int {
 		aYMin := min(a.y0, a.y1)
 		bYMin := min(b.y0, b.y1)
-		if aYMin < bYMin {
-			return -1
-		}
-		if aYMin > bYMin {
-			return 1
-		}
-		return 0
+		return cmp.Compare(aYMin, bYMin)
 	})
 
 	// Active edge list (indices into r.edges)
-	r.active = r.active[:0]
+	r.activeIdx = r.activeIdx[:0]
 	nextEdge := 0
 
 	// Process scanlines
@@ -740,34 +683,32 @@ func (r *Rasteriser) fillScanline(xMin, xMax, yMin, yMax int, rule fillRule, emi
 			if edgeYMin >= yfNext {
 				break
 			}
-			r.active = append(r.active, nextEdge)
+			r.activeIdx = append(r.activeIdx, nextEdge)
 			nextEdge++
 		}
 
-		if len(r.active) == 0 {
+		if len(r.activeIdx) == 0 {
 			continue
 		}
 
 		// Clear buffers for this scanline
-		for i := range r.cover {
-			r.cover[i] = 0
-			r.area[i] = 0
-		}
+		clear(r.cover)
+		clear(r.area)
 
 		// Track x bounds for this scanline
 		xMinBound := width
 		xMaxBound := -1
 
 		// Process active edges
-		for i := 0; i < len(r.active); {
-			e := &r.edges[r.active[i]]
+		for i := 0; i < len(r.activeIdx); {
+			e := &r.edges[r.activeIdx[i]]
 
 			// Check if edge ends before this scanline
 			edgeYMax := max(e.y0, e.y1)
 			if edgeYMax <= yf {
 				// Remove from active list (swap with last)
-				r.active[i] = r.active[len(r.active)-1]
-				r.active = r.active[:len(r.active)-1]
+				r.activeIdx[i] = r.activeIdx[len(r.activeIdx)-1]
+				r.activeIdx = r.activeIdx[:len(r.activeIdx)-1]
 				continue
 			}
 
@@ -800,802 +741,17 @@ func (r *Rasteriser) fillScanline(xMin, xMax, yMin, yMax int, rule fillRule, emi
 		}
 
 		// Integrate and emit
-		coverage := r.integrateScanline(r.cover, r.area, 0, width-1, rule)
-
-		// Find actual non-zero range
-		outXMin := 0
-		outXMax := width - 1
-		for outXMin < width && coverage[outXMin] == 0 {
-			outXMin++
-		}
-		for outXMax > outXMin && coverage[outXMax] == 0 {
-			outXMax--
-		}
-		if outXMin <= outXMax {
-			emit(y, xMin+outXMin, coverage[outXMin:outXMax+1])
-		}
-	}
-}
-
-// Stroke rasterises the path as a stroked outline.
-// Uses Width, Cap, Join, MiterLimit, Dash, and DashPhase from the Rasteriser.
-// The stroke outline is filled using the nonzero winding rule.
-// Coverage is delivered row-by-row via the emit callback.
-// The coverage slice passed to emit is only valid for the duration
-// of the callback.
-func (r *Rasteriser) Stroke(p *path.Data, emit func(y, xMin int, coverage []float32)) {
-	// Flatten path into subpaths (results stored in r.flattenedSegs, etc.)
-	r.flattenPath(p)
-	if len(r.flattenedOffsets) == 0 && len(r.degeneratePoints) == 0 {
-		return
-	}
-
-	// Build stroke outlines for all subpaths into a single contiguous buffer.
-	// strokeOffsets tracks where each polygon starts. This ensures overlapping
-	// dash segments are composited correctly using the nonzero winding rule.
-	r.stroke = r.stroke[:0]
-	r.strokeOffsets = r.strokeOffsets[:0]
-
-	// Handle degenerate subpaths (no orientation): only round cap produces circle
-	if r.Cap == graphics.LineCapRound {
-		for _, pt := range r.degeneratePoints {
-			startOffset := len(r.stroke)
-			r.addArc(pt, r.Width/2, vec.Vec2{X: 1, Y: 0}, 2*math.Pi, true)
-			r.strokeOffsets = append(r.strokeOffsets, startOffset)
-		}
-	}
-
-	// Apply dash pattern if specified
-	if len(r.Dash) > 0 {
-		r.strokeDashedSubpaths()
-	} else {
-		r.strokeAllSubpaths()
-	}
-
-	// Fill all stroke polygons together as a compound path
-	r.fillStrokeOutlines(emit)
-}
-
-// strokeAllSubpaths strokes all flattened subpaths (non-dashed case).
-func (r *Rasteriser) strokeAllSubpaths() {
-	numSubpaths := len(r.flattenedOffsets)
-	for i := 0; i < numSubpaths; i++ {
-		segs := r.getSubpathSegments(i)
-		closed := r.flattenedClosed[i]
-
-		startOffset := len(r.stroke)
-		r.strokeSubpath(segs, closed)
-		if len(r.stroke)-startOffset >= 3 {
-			r.strokeOffsets = append(r.strokeOffsets, startOffset)
+		if rule == fillNonZero {
+			integrateScanlineNonZero(r.cover, r.area)
 		} else {
-			// Degenerate polygon, discard by resetting to start
-			r.stroke = r.stroke[:startOffset]
-		}
-	}
-}
-
-// getSubpathSegments returns the segments for subpath i as a slice into flattenedSegs.
-func (r *Rasteriser) getSubpathSegments(i int) []strokeSegment {
-	start := r.flattenedOffsets[i]
-	var end int
-	if i+1 < len(r.flattenedOffsets) {
-		end = r.flattenedOffsets[i+1]
-	} else {
-		end = len(r.flattenedSegs)
-	}
-	return r.flattenedSegs[start:end]
-}
-
-// strokeDashedSubpaths applies dash pattern and strokes the resulting segments.
-func (r *Rasteriser) strokeDashedSubpaths() {
-	// Apply dash pattern - populates r.dashedSegs and r.dashedOffsets
-	r.applyDashPattern()
-
-	numDashes := len(r.dashedOffsets)
-	for i := 0; i < numDashes; i++ {
-		segs := r.getDashedSegments(i)
-
-		// Handle dash-created zero-length segments (have orientation from underlying path)
-		if len(segs) == 1 && segs[0].A == segs[0].B {
-			seg := &segs[0]
-			startOffset := len(r.stroke)
-			switch r.Cap {
-			case graphics.LineCapRound:
-				r.addArc(seg.A, r.Width/2, vec.Vec2{X: 1, Y: 0}, 2*math.Pi, true)
-				r.strokeOffsets = append(r.strokeOffsets, startOffset)
-			case graphics.LineCapSquare:
-				r.addSquare(seg.A, seg.T, r.Width/2)
-				r.strokeOffsets = append(r.strokeOffsets, startOffset)
-			}
-			// Butt cap: no output
-			continue
+			integrateScanlineEvenOdd(r.cover, r.area)
 		}
 
-		startOffset := len(r.stroke)
-		r.strokeSubpath(segs, false) // dashed subpaths are never closed
-		if len(r.stroke)-startOffset >= 3 {
-			r.strokeOffsets = append(r.strokeOffsets, startOffset)
-		} else {
-			// Degenerate polygon, discard by resetting to start
-			r.stroke = r.stroke[:startOffset]
+		// Emit only the non-zero portion
+		if trimmed, offset := trimZeros(r.cover); trimmed != nil {
+			emit(y, xMin+offset, trimmed)
 		}
 	}
-}
-
-// getDashedSegments returns the segments for dashed subpath i as a slice into dashedSegs.
-func (r *Rasteriser) getDashedSegments(i int) []strokeSegment {
-	start := r.dashedOffsets[i]
-	var end int
-	if i+1 < len(r.dashedOffsets) {
-		end = r.dashedOffsets[i+1]
-	} else {
-		end = len(r.dashedSegs)
-	}
-	return r.dashedSegs[start:end]
-}
-
-// flattenPath walks the path, flattens curves, and populates the flattening
-// buffers with precomputed segment geometry. Results are stored in:
-//   - r.flattenedSegs: all segments from all subpaths, contiguous
-//   - r.flattenedOffsets: start index of each subpath in flattenedSegs
-//   - r.flattenedClosed: whether each subpath is closed
-//   - r.degeneratePoints: degenerate subpaths (no orientation)
-func (r *Rasteriser) flattenPath(p *path.Data) {
-	// Clear buffers (preserving capacity)
-	r.flattenedSegs = r.flattenedSegs[:0]
-	r.flattenedOffsets = r.flattenedOffsets[:0]
-	r.flattenedClosed = r.flattenedClosed[:0]
-	r.degeneratePoints = r.degeneratePoints[:0]
-
-	var currentPt vec.Vec2
-	var subpathStartPt vec.Vec2
-	subpathStartIdx := 0 // index into flattenedSegs where current subpath starts
-	inSubpath := false
-	sawDrawingCmd := false // tracks if we saw LineTo/QuadTo/CubeTo (for degenerate detection)
-
-	// Walk the path using direct field access (no iterator allocation)
-	coordIdx := 0
-	for _, cmd := range p.Cmds {
-		switch cmd {
-		case path.CmdMoveTo:
-			// Close previous subpath if needed
-			if inSubpath && (len(r.flattenedSegs) > subpathStartIdx || sawDrawingCmd) {
-				if len(r.flattenedSegs) == subpathStartIdx {
-					// Degenerate subpath (no orientation) - collect for special handling
-					r.degeneratePoints = append(r.degeneratePoints, subpathStartPt)
-				} else {
-					r.flattenedOffsets = append(r.flattenedOffsets, subpathStartIdx)
-					r.flattenedClosed = append(r.flattenedClosed, false)
-				}
-			}
-			currentPt = p.Coords[coordIdx]
-			coordIdx++
-			subpathStartPt = currentPt
-			subpathStartIdx = len(r.flattenedSegs)
-			inSubpath = true
-			sawDrawingCmd = false
-
-		case path.CmdLineTo:
-			if !inSubpath {
-				coordIdx++
-				continue
-			}
-			sawDrawingCmd = true
-			r.addFlattenedSegment(currentPt, p.Coords[coordIdx])
-			currentPt = p.Coords[coordIdx]
-			coordIdx++
-
-		case path.CmdQuadTo:
-			if !inSubpath {
-				coordIdx += 2
-				continue
-			}
-			sawDrawingCmd = true
-			p0 := currentPt
-			p1 := p.Coords[coordIdx]   // control point
-			p2 := p.Coords[coordIdx+1] // endpoint
-			r.flattenQuadratic(p0, p1, p2, r.addFlattenedSegment)
-			currentPt = p2
-			coordIdx += 2
-
-		case path.CmdCubeTo:
-			if !inSubpath {
-				coordIdx += 3
-				continue
-			}
-			sawDrawingCmd = true
-			p0 := currentPt
-			p1 := p.Coords[coordIdx]   // control point 1
-			p2 := p.Coords[coordIdx+1] // control point 2
-			p3 := p.Coords[coordIdx+2] // endpoint
-			r.flattenCubic(p0, p1, p2, p3, r.addFlattenedSegment)
-			currentPt = p3
-			coordIdx += 3
-
-		case path.CmdClose:
-			if inSubpath {
-				// Add closing segment if needed
-				if currentPt != subpathStartPt {
-					r.addFlattenedSegment(currentPt, subpathStartPt)
-				}
-				if len(r.flattenedSegs) == subpathStartIdx {
-					// Degenerate closed subpath - collect for special handling
-					r.degeneratePoints = append(r.degeneratePoints, subpathStartPt)
-				} else {
-					r.flattenedOffsets = append(r.flattenedOffsets, subpathStartIdx)
-					r.flattenedClosed = append(r.flattenedClosed, true)
-				}
-				currentPt = subpathStartPt
-				subpathStartIdx = len(r.flattenedSegs)
-				inSubpath = false
-				sawDrawingCmd = false
-			}
-		}
-	}
-
-	// Handle unclosed subpath at end
-	if inSubpath && (len(r.flattenedSegs) > subpathStartIdx || sawDrawingCmd) {
-		if len(r.flattenedSegs) == subpathStartIdx {
-			// Degenerate subpath - collect for special handling
-			r.degeneratePoints = append(r.degeneratePoints, subpathStartPt)
-		} else {
-			r.flattenedOffsets = append(r.flattenedOffsets, subpathStartIdx)
-			r.flattenedClosed = append(r.flattenedClosed, false)
-		}
-	}
-}
-
-// addFlattenedSegment adds a line segment to the flattening buffer.
-func (r *Rasteriser) addFlattenedSegment(a, b vec.Vec2) {
-	d := b.Sub(a)
-	length := d.Length()
-	if length < zeroLengthThreshold {
-		return // skip degenerate segment
-	}
-	t := d.Mul(1 / length)         // unit tangent
-	n := vec.Vec2{X: -t.Y, Y: t.X} // unit normal (90° CCW)
-	r.flattenedSegs = append(r.flattenedSegs, strokeSegment{A: a, B: b, T: t, N: n})
-}
-
-// strokeSubpath builds the stroke outline for a single subpath into r.stroke.
-// The stroke outline is built as a closed polygon: forward pass on the +N side,
-// then backward pass on the -N side. Join geometry is added on the outer side
-// of each corner, which depends on the turn direction.
-// Zero-length subpaths are handled by the caller before invoking this method.
-func (r *Rasteriser) strokeSubpath(segs []strokeSegment, closed bool) {
-	if len(segs) == 0 {
-		return // empty, nothing to do
-	}
-
-	d := r.Width / 2 // half-width
-
-	if closed {
-		// Closed path: no caps, just joins
-		// Build one continuous polygon: +N side forward, then -N side backward
-		// The closing corner needs special handling to connect the two sides.
-
-		first := &segs[0]
-		last := &segs[len(segs)-1]
-
-		// Forward pass: +N side (right side of path direction)
-		// Start with the closing corner's +N point from segment 0's perspective
-		r.stroke = append(r.stroke, first.A.Add(first.N.Mul(d)))
-		for i := range len(segs) {
-			seg := &segs[i]
-			r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
-			// Add join to next segment if outer side is +N
-			if i < len(segs)-1 {
-				next := &segs[i+1]
-				r.addJoinIfOuter(seg.B, seg.T, next.T, d, true)
-				// Add next segment's A point after join
-				r.stroke = append(r.stroke, next.A.Add(next.N.Mul(d)))
-			}
-		}
-		// Closing corner: join from last segment to first, then transition to -N side
-		r.addJoinIfOuter(last.B, last.T, first.T, d, true)
-		// Add first segment's A from +N side (same physical point, different offset)
-		r.stroke = append(r.stroke, first.A.Add(first.N.Mul(d)))
-
-		// Backward pass: -N side (left side of path direction)
-		// Start with the closing corner's -N point from segment 0's perspective
-		r.stroke = append(r.stroke, first.A.Sub(first.N.Mul(d)))
-		// Add closing corner join on -N side
-		r.addJoinIfOuter(first.A, last.T, first.T, d, false)
-		// Continue with last segment's B from -N side
-		r.stroke = append(r.stroke, last.B.Sub(last.N.Mul(d)))
-
-		for i := len(segs) - 1; i >= 0; i-- {
-			seg := &segs[i]
-			r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
-			// Add join at this segment's A point (corner with previous segment)
-			if i > 0 {
-				prev := &segs[i-1]
-				r.addJoinIfOuter(seg.A, prev.T, seg.T, d, false)
-				r.stroke = append(r.stroke, prev.B.Sub(prev.N.Mul(d)))
-			}
-		}
-
-	} else {
-		// Open path: caps at ends, joins in between
-		first := &segs[0]
-		last := &segs[len(segs)-1]
-
-		// Start cap (at first.A, direction = -T)
-		r.addCap(first.A, first.T.Mul(-1), d)
-
-		// Forward pass: +N side (right side of path direction)
-		for i := range len(segs) {
-			seg := &segs[i]
-			r.stroke = append(r.stroke, seg.A.Add(seg.N.Mul(d)))
-			r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
-			if i < len(segs)-1 {
-				r.addJoinIfOuter(seg.B, seg.T, segs[i+1].T, d, true)
-			}
-		}
-
-		// End cap (at last.B, direction = T)
-		r.addCap(last.B, last.T, d)
-
-		// Backward pass: -N side (left side of path direction)
-		for i := len(segs) - 1; i >= 0; i-- {
-			seg := &segs[i]
-			r.stroke = append(r.stroke, seg.B.Sub(seg.N.Mul(d)))
-			r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
-			// Add join after this segment's A point (at the corner)
-			if i > 0 {
-				prev := &segs[i-1]
-				r.addJoinIfOuter(seg.A, prev.T, seg.T, d, false)
-			}
-		}
-	}
-}
-
-// addCap adds a line cap to the stroke outline at point P.
-// T is the outward tangent direction (away from the line).
-// d is half the stroke width.
-func (r *Rasteriser) addCap(P, T vec.Vec2, d float64) {
-	N := vec.Vec2{X: -T.Y, Y: T.X} // normal (90° CCW from T)
-
-	switch r.Cap {
-	case graphics.LineCapButt:
-		// Butt cap: just connect left and right offset points (already done by caller)
-		// No additional points needed
-
-	case graphics.LineCapSquare:
-		// Square cap: extend by d along tangent
-		ext := P.Add(T.Mul(d))
-		left := ext.Add(N.Mul(d))
-		right := ext.Sub(N.Mul(d))
-		r.stroke = append(r.stroke, left, right)
-
-	case graphics.LineCapRound:
-		// Round cap: semicircular arc curving outward (through T direction)
-		// Arc starts at N direction and sweeps CW (negative angle) to reach -N,
-		// passing through T (the outward direction)
-		// includeStart=true because cap's start point is not yet in the polygon
-		r.addArc(P, d, N, -math.Pi, true)
-	}
-}
-
-// addJoinIfOuter adds a line join at point P only if we're on the outer side of the corner.
-// isPositiveNormalSide indicates whether we're currently building the +N side (true) or -N side (false).
-// Join geometry is only added when the outer side matches the current side.
-func (r *Rasteriser) addJoinIfOuter(P, T1, T2 vec.Vec2, d float64, isPositiveNormalSide bool) {
-	// Compute angle between tangents
-	sinTheta := T1.X*T2.Y - T1.Y*T2.X // cross product Z component
-
-	// Skip if nearly collinear
-	if sinTheta > -collinearityThreshold && sinTheta < collinearityThreshold {
-		return
-	}
-
-	// Determine which side is outer:
-	// N = (-T.Y, T.X) points to the RIGHT of the walking direction in screen coords (Y down).
-	// sinTheta > 0 means right turn (CW visually), outer side is LEFT (-N side)
-	// sinTheta < 0 means left turn (CCW visually), outer side is RIGHT (+N side)
-	outerIsLeft := sinTheta > 0
-
-	// Only add join geometry if we're on the outer side
-	// Forward pass (+N) is outer when outerIsLeft is false (left turn)
-	// Backward pass (-N) is outer when outerIsLeft is true (right turn)
-	if isPositiveNormalSide == outerIsLeft {
-		return // inner side, skip join geometry
-	}
-
-	r.addJoin(P, T1, T2, d, isPositiveNormalSide)
-}
-
-// addJoin adds a line join at point P where tangent changes from T1 to T2.
-// d is half the stroke width.
-// isPositiveNormalSide indicates which side of the stroke we're building.
-func (r *Rasteriser) addJoin(P, T1, T2 vec.Vec2, d float64, isPositiveNormalSide bool) {
-	// Compute angle between tangents
-	cosTheta := T1.Dot(T2)
-	sinTheta := T1.X*T2.Y - T1.Y*T2.X // cross product Z component
-
-	// Skip if nearly collinear
-	if sinTheta > -collinearityThreshold && sinTheta < collinearityThreshold {
-		return
-	}
-
-	// Check for cusp (path doubling back on itself)
-	if cosTheta < cuspCosineThreshold {
-		// Emit two caps instead of a join
-		r.addCap(P, T1, d)
-		r.addCap(P, T2.Mul(-1), d)
-		return
-	}
-
-	// The join geometry extends in the direction of the current side we're building.
-	// isPositiveNormalSide tells us which side: +N (true) or -N (false).
-
-	switch r.Join {
-	case graphics.LineJoinMiter:
-		// Check miter limit: miterLength = 1 / sin(φ/2)
-		// where φ is the visual angle at the corner (interior angle of the stroke).
-		// If θ is the angle between tangents (cosTheta = T1·T2), then φ = 180° - θ.
-		// sin(φ/2) = sin(90° − θ/2) = cos(θ/2) = sqrt((1 + cosθ) / 2)
-		sinHalf := math.Sqrt((1 + cosTheta) / 2)
-		// Use small tolerance for boundary cases (floating-point precision)
-		const miterEpsilon = 1e-10
-		if sinHalf > 0 && 1/sinHalf <= r.MiterLimit+miterEpsilon {
-			// Miter join: compute miter point
-			// The miter point is where the two offset lines intersect
-			// Distance from P to miter point = d / sin(φ/2) = d / sinHalf
-			N1 := vec.Vec2{X: -T1.Y, Y: T1.X}
-			N2 := vec.Vec2{X: -T2.Y, Y: T2.X}
-
-			// Bisector direction depends on which side we're building
-			var bisector vec.Vec2
-			if isPositiveNormalSide {
-				bisector = N1.Add(N2) // +N side
-			} else {
-				bisector = N1.Add(N2).Mul(-1) // -N side
-			}
-			bisectorLen := bisector.Length()
-			if bisectorLen > zeroLengthThreshold {
-				bisector = bisector.Mul(1 / bisectorLen)
-				// Distance to miter point = d / sinHalf
-				miterDist := d / sinHalf
-				miterPt := P.Add(bisector.Mul(miterDist))
-				r.stroke = append(r.stroke, miterPt)
-			}
-			return
-		}
-		// Fall through to bevel if miter limit exceeded
-		fallthrough
-
-	case graphics.LineJoinBevel:
-		// Bevel join: just let the two offset lines meet (no additional points)
-		// The caller already adds the necessary points
-		return
-
-	case graphics.LineJoinRound:
-		// Round join: arc curving outward on the current side
-		// includeStart=false because join's start point is already in the polygon
-		angle := math.Acos(max(-1, min(1, cosTheta)))
-		if isPositiveNormalSide {
-			// Forward pass: arc from +N of T1 to +N of T2
-			N1 := vec.Vec2{X: -T1.Y, Y: T1.X} // +N direction of T1
-			// For +N side: right turn needs CCW arc, left turn needs CW arc
-			if sinTheta > 0 {
-				r.addArc(P, d, N1, angle, false)
-			} else {
-				r.addArc(P, d, N1, -angle, false)
-			}
-		} else {
-			// Backward pass: we just added offset using T2's normal, so arc must
-			// start from -N of T2 and go to -N of T1 (reversed direction)
-			N2 := vec.Vec2{X: T2.Y, Y: -T2.X} // -N direction of T2
-			// Sweep direction is reversed from forward pass
-			if sinTheta > 0 {
-				r.addArc(P, d, N2, -angle, false)
-			} else {
-				r.addArc(P, d, N2, angle, false)
-			}
-		}
-	}
-}
-
-// addArc adds arc vertices to the stroke outline.
-// center is the arc center, radius is the arc radius.
-// startDir is the unit vector from center to arc start.
-// sweep is the sweep angle in radians (positive = CCW).
-// includeStart indicates whether to include the start point (false if caller already added it).
-func (r *Rasteriser) addArc(center vec.Vec2, radius float64, startDir vec.Vec2, sweep float64, includeStart bool) {
-	// Compute number of segments based on flatness tolerance
-	// Using device-space radius for segment count
-	devRadius := r.transformLinear(vec.Vec2{X: radius, Y: 0}).Length()
-	devRadius2 := r.transformLinear(vec.Vec2{X: 0, Y: radius}).Length()
-	devRadius = max(devRadius, devRadius2)
-
-	if devRadius < r.Flatness {
-		// Arc too small to matter - just add end point (and start if needed)
-		if includeStart {
-			r.stroke = append(r.stroke, center.Add(startDir.Mul(radius)))
-		}
-		cos, sin := math.Cos(sweep), math.Sin(sweep)
-		endDir := vec.Vec2{
-			X: startDir.X*cos - startDir.Y*sin,
-			Y: startDir.X*sin + startDir.Y*cos,
-		}
-		r.stroke = append(r.stroke, center.Add(endDir.Mul(radius)))
-		return
-	}
-
-	// n = ceil(|sweep| / acos(1 - flatness/devRadius))
-	absSweep := math.Abs(sweep)
-
-	angleStep := math.Acos(1 - r.Flatness/devRadius)
-	if angleStep <= 0 || math.IsNaN(angleStep) {
-		angleStep = math.Pi / 4 // fallback
-	}
-	n := int(math.Ceil(absSweep / angleStep))
-	n = max(n, 1)
-
-	// Generate arc points
-	dt := sweep / float64(n)
-	startI := 0
-	if !includeStart {
-		startI = 1 // skip start point if caller already added it
-	}
-	for i := startI; i <= n; i++ {
-		angle := float64(i) * dt
-		// Rotate startDir by angle
-		cos, sin := math.Cos(angle), math.Sin(angle)
-		dir := vec.Vec2{
-			X: startDir.X*cos - startDir.Y*sin,
-			Y: startDir.X*sin + startDir.Y*cos,
-		}
-		pt := center.Add(dir.Mul(radius))
-		r.stroke = append(r.stroke, pt)
-	}
-}
-
-// addSquare adds a filled square to the stroke outline for a zero-length
-// dash segment with square caps. The square is centered at the point with
-// side length = 2*d (i.e., the line width), oriented by the tangent T.
-func (r *Rasteriser) addSquare(center vec.Vec2, T vec.Vec2, d float64) {
-	N := vec.Vec2{X: -T.Y, Y: T.X} // normal (90° CCW from T)
-	// Four corners of the square
-	r.stroke = append(r.stroke,
-		center.Add(T.Mul(d)).Add(N.Mul(d)),
-		center.Add(T.Mul(d)).Sub(N.Mul(d)),
-		center.Sub(T.Mul(d)).Sub(N.Mul(d)),
-		center.Sub(T.Mul(d)).Add(N.Mul(d)),
-	)
-}
-
-// applyDashPattern applies the dash pattern to flattened subpaths.
-// Results are stored in r.dashedSegs and r.dashedOffsets.
-func (r *Rasteriser) applyDashPattern() {
-	// Clear output buffers (preserving capacity)
-	r.dashedSegs = r.dashedSegs[:0]
-	r.dashedOffsets = r.dashedOffsets[:0]
-
-	// Normalize dash pattern (odd length -> double it)
-	dash := r.Dash
-	if len(dash)%2 == 1 {
-		dash = append(dash, dash...)
-	}
-
-	// Compute total pattern length
-	patternLen := 0.0
-	for _, d := range dash {
-		patternLen += d
-	}
-	if patternLen <= 0 {
-		return // no dashing
-	}
-
-	// Normalize phase to [0, patternLen)
-	phase := r.DashPhase
-	phase = math.Mod(phase, patternLen)
-	if phase < 0 {
-		phase += patternLen
-	}
-
-	numSubpaths := len(r.flattenedOffsets)
-	for spIdx := 0; spIdx < numSubpaths; spIdx++ {
-		segments := r.getSubpathSegments(spIdx)
-		closed := r.flattenedClosed[spIdx]
-		if len(segments) == 0 {
-			continue
-		}
-
-		// Find starting dash index and remaining distance in that dash
-		dashIdx := 0
-		dist := phase
-		for dist >= dash[dashIdx] && dash[dashIdx] > 0 {
-			dist -= dash[dashIdx]
-			dashIdx = (dashIdx + 1) % len(dash)
-		}
-		remaining := dash[dashIdx] - dist
-		isOn := dashIdx%2 == 0 // even indices are "on"
-
-		// Handle zero-length dash at the very start of the path.
-		// This emits a point that will become a dot with round/square caps.
-		if isOn && remaining == 0 && len(segments) > 0 {
-			seg := segments[0]
-			r.dashedOffsets = append(r.dashedOffsets, len(r.dashedSegs))
-			r.dashedSegs = append(r.dashedSegs, strokeSegment{A: seg.A, B: seg.A, T: seg.T, N: seg.N})
-			// Advance to next dash element
-			dashIdx = (dashIdx + 1) % len(dash)
-			remaining = dash[dashIdx]
-			isOn = dashIdx%2 == 0
-		}
-
-		// Track if we started with "on" for closed path joining
-		startedOn := isOn
-		firstDashStart := -1 // index into dashedSegs where first dash starts
-		firstDashEnd := -1   // index into dashedSegs where first dash ends
-
-		// Walk segments and split at dash boundaries
-		dashStartIdx := len(r.dashedSegs) // start of current dash in dashedSegs
-		segIdx := 0
-		segDist := 0.0 // distance along current segment
-
-		for segIdx < len(segments) {
-			seg := segments[segIdx]
-			segLen := seg.B.Sub(seg.A).Length()
-			segRemaining := segLen - segDist
-
-			if remaining >= segRemaining {
-				// Dash continues past this segment
-				if isOn {
-					// Add portion of segment from segDist to end
-					if segDist > 0 {
-						t := segDist / segLen
-						startPt := seg.A.Add(seg.B.Sub(seg.A).Mul(t))
-						r.dashedSegs = append(r.dashedSegs, strokeSegment{
-							A: startPt, B: seg.B,
-							T: seg.T, N: seg.N,
-						})
-					} else {
-						r.dashedSegs = append(r.dashedSegs, seg)
-					}
-				}
-				remaining -= segRemaining
-				segIdx++
-				segDist = 0
-			} else {
-				// Dash ends within this segment
-				endDist := segDist + remaining
-				t := endDist / segLen
-				splitPt := seg.A.Add(seg.B.Sub(seg.A).Mul(t))
-
-				if isOn {
-					// Add portion from segDist to splitPt
-					startT := segDist / segLen
-					startPt := seg.A.Add(seg.B.Sub(seg.A).Mul(startT))
-					d := splitPt.Sub(startPt)
-					dLen := d.Length()
-					if dLen > zeroLengthThreshold {
-						tVec := d.Mul(1 / dLen)
-						nVec := vec.Vec2{X: -tVec.Y, Y: tVec.X}
-						r.dashedSegs = append(r.dashedSegs, strokeSegment{
-							A: startPt, B: splitPt,
-							T: tVec, N: nVec,
-						})
-					} else if len(r.dashedSegs) == dashStartIdx {
-						// Zero-length dash: emit point with tangent from underlying segment
-						// This allows square/round caps to be drawn at this point
-						r.dashedSegs = append(r.dashedSegs, strokeSegment{
-							A: startPt, B: startPt,
-							T: seg.T, N: seg.N,
-						})
-					}
-
-					// Save first dash indices for closed path joining
-					if firstDashStart < 0 && len(r.dashedSegs) > dashStartIdx {
-						firstDashStart = dashStartIdx
-						firstDashEnd = len(r.dashedSegs)
-					}
-
-					// Emit current dash if non-empty
-					if len(r.dashedSegs) > dashStartIdx {
-						r.dashedOffsets = append(r.dashedOffsets, dashStartIdx)
-						dashStartIdx = len(r.dashedSegs)
-					}
-				}
-
-				// Move to next dash
-				segDist = endDist
-				dashIdx = (dashIdx + 1) % len(dash)
-				remaining = dash[dashIdx]
-				isOn = dashIdx%2 == 0
-			}
-		}
-
-		// Emit final dash if any
-		if len(r.dashedSegs) > dashStartIdx {
-			// For closed paths, check if we should join first and last dash
-			if closed && startedOn && isOn && firstDashStart >= 0 {
-				// Merge: append first dash segments to current dash
-				for i := firstDashStart; i < firstDashEnd; i++ {
-					r.dashedSegs = append(r.dashedSegs, r.dashedSegs[i])
-				}
-				// Remove the first dash from offsets if we added it
-				if len(r.dashedOffsets) > 0 && r.dashedOffsets[0] == firstDashStart {
-					r.dashedOffsets = r.dashedOffsets[1:]
-				}
-			}
-			r.dashedOffsets = append(r.dashedOffsets, dashStartIdx)
-		}
-	}
-}
-
-// fillStrokeOutlines fills all collected stroke polygons as a compound path.
-// Using nonzero winding rule ensures overlapping regions are painted once.
-func (r *Rasteriser) fillStrokeOutlines(emit func(y, xMin int, coverage []float32)) {
-	if len(r.strokeOffsets) == 0 {
-		return
-	}
-
-	// Collect edges directly from stroke polygons (no intermediate path allocation)
-	xMin, xMax, yMin, yMax, ok := r.collectStrokeEdges()
-	if !ok {
-		return
-	}
-
-	// Choose approach based on bounding box size
-	width := xMax - xMin
-	height := yMax - yMin
-
-	if width*height < r.smallPathThreshold {
-		r.fill2D(xMin, xMax, yMin, yMax, fillNonZero, emit)
-	} else {
-		r.fillScanline(xMin, xMax, yMin, yMax, fillNonZero, emit)
-	}
-}
-
-// collectStrokeEdges builds the edge list directly from stroke polygons.
-// This avoids creating an intermediate path representation.
-func (r *Rasteriser) collectStrokeEdges() (xMin, xMax, yMin, yMax int, ok bool) {
-	r.edges = r.edges[:0]
-	r.edgeBBoxFirst = true
-
-	for i, start := range r.strokeOffsets {
-		// Determine end of this polygon
-		var end int
-		if i+1 < len(r.strokeOffsets) {
-			end = r.strokeOffsets[i+1]
-		} else {
-			end = len(r.stroke)
-		}
-		poly := r.stroke[start:end]
-		if len(poly) < 2 {
-			continue
-		}
-
-		// Add edges for each segment
-		for j := 1; j < len(poly); j++ {
-			r.addEdge(poly[j-1], poly[j])
-		}
-		// Close the polygon
-		r.addEdge(poly[len(poly)-1], poly[0])
-	}
-
-	if len(r.edges) == 0 {
-		return 0, 0, 0, 0, false
-	}
-
-	// Clamp to clip bounds and convert to integers
-	clipXMin := int(r.Clip.LLx)
-	clipXMax := int(r.Clip.URx)
-	clipYMin := int(r.Clip.LLy)
-	clipYMax := int(r.Clip.URy)
-
-	xMin = max(int(math.Floor(r.edgeDevXMin)), clipXMin)
-	xMax = min(int(math.Floor(r.edgeDevXMax))+1, clipXMax)
-	yMin = max(int(math.Floor(r.edgeDevYMin)), clipYMin)
-	yMax = min(int(math.Floor(r.edgeDevYMax))+1, clipYMax)
-
-	if xMin >= xMax || yMin >= yMax {
-		return 0, 0, 0, 0, false
-	}
-
-	return xMin, xMax, yMin, yMax, true
 }
 
 // Reset resets the Rasteriser to its initial state with the given clip rectangle,
@@ -1605,29 +761,67 @@ func (r *Rasteriser) Reset(clip rect.Rect) {
 	// Reset public state to defaults
 	r.CTM = matrix.Identity
 	r.Clip = clip
-	r.Flatness = DefaultFlatness
+	r.Flatness = defaultFlatness
 	r.Width = 1.0
 	r.Cap = graphics.LineCapButt
 	r.Join = graphics.LineJoinMiter
-	r.MiterLimit = DefaultMiterLimit
+	r.MiterLimit = defaultMiterLimit
 	r.Dash = nil
 	r.DashPhase = 0
 
 	// Preserve buffer capacity by slicing to zero length
 	r.cover = r.cover[:0]
 	r.area = r.area[:0]
-	r.output = r.output[:0]
 	r.edges = r.edges[:0]
-	r.active = r.active[:0]
-	r.xMin = r.xMin[:0]
-	r.xMax = r.xMax[:0]
+	r.activeIdx = r.activeIdx[:0]
+	r.rowXMin = r.rowXMin[:0]
+	r.rowXMax = r.rowXMax[:0]
 	r.stroke = r.stroke[:0]
 	r.strokeOffsets = r.strokeOffsets[:0]
 	r.crossings = r.crossings[:0]
-	r.flattenedSegs = r.flattenedSegs[:0]
-	r.flattenedOffsets = r.flattenedOffsets[:0]
-	r.flattenedClosed = r.flattenedClosed[:0]
+	r.segs = r.segs[:0]
+	r.segsOffsets = r.segsOffsets[:0]
+	r.subpathClosed = r.subpathClosed[:0]
 	r.degeneratePoints = r.degeneratePoints[:0]
 	r.dashedSegs = r.dashedSegs[:0]
-	r.dashedOffsets = r.dashedOffsets[:0]
+	r.dashedSegsOffsets = r.dashedSegsOffsets[:0]
 }
+
+// Default values for rasteriser parameters.
+const (
+	// defaultFlatness is the default curve flattening tolerance in device
+	// pixels. Values of 0.25-1.0 are typical; 0.25 is below the threshold
+	// of visual perception.
+	defaultFlatness = 0.25
+
+	// defaultMiterLimit is the default miter limit, matching PDF/PostScript.
+	// This converts joins to bevels when the interior angle is less than
+	// approximately 11.5 degrees.
+	defaultMiterLimit = 10.0
+)
+
+// Numerical tolerances for the rasteriser.
+const (
+	// horizontalEdgeThreshold is the minimum vertical extent for an edge
+	// to contribute to coverage. Edges with |y1 - y0| below this threshold
+	// are skipped as horizontal.
+	horizontalEdgeThreshold = 1e-10
+
+	// smallPathThreshold is the maximum bounding box area (in pixels) for
+	// using 2D buffers (Approach A). Paths with larger bounding boxes use
+	// the active edge list (Approach B).
+	// TODO: tune this threshold based on profiling
+	smallPathThreshold = 65536
+
+	// zeroLengthThreshold is the minimum length for a stroke segment.
+	// Segments shorter than this are skipped.
+	zeroLengthThreshold = 1e-10
+
+	// collinearityThreshold is used to detect nearly collinear segments
+	// where no join is needed.
+	collinearityThreshold = 1e-6
+
+	// cuspCosineThreshold is the cosine threshold for detecting cusps
+	// (path doubling back on itself). cos(179.43°) ≈ -0.9999
+	cuspCosineThreshold = -0.9999
+)
