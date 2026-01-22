@@ -84,13 +84,11 @@ type Rasterizer struct {
 	// Internal buffers (reused across calls)
 	cover         []float32  // coverage accumulation: cover change per pixel; reused as output
 	area          []float32  // coverage accumulation: area within pixel
-	edges         []edge     // edge list for current path (device coordinates)
-	activeIdx     []int      // indices of active edges
-	rowXMin       []int      // per-scanline minimum x with edge contribution
-	rowXMax       []int      // per-scanline maximum x with edge contribution
-	stroke        []vec.Vec2 // stroke outline vertices (all subpaths contiguous)
+	edges        []edge     // edge list for current path (device coordinates)
+	activeIdx    []int      // indices of active edges
+	rowHasEdges  []bool     // per-scanline flag: true if any edge contributes
+	stroke       []vec.Vec2 // stroke outline vertices (all subpaths contiguous)
 	strokeOffsets []int      // start index of each stroke polygon in stroke[]
-	crossings     []float64  // y values where edge crosses pixel boundaries
 
 	// Flattening buffers (for stroke path processing)
 	segs             []strokeSegment // all segments from all subpaths, contiguous
@@ -419,33 +417,20 @@ func (r *Rasterizer) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 		return
 	}
 
-	// Edge spans multiple pixels - split at each pixel boundary
-	// Collect all y values where the edge crosses integer x boundaries
-	// Then process each segment between consecutive crossings
+	// Edge spans multiple pixels - process each pixel column in x-order
+	// For each pixel, compute the y-extent of the edge within that column
 	dydx := 1 / e.dxdy
 
-	// Build list of y values where edge crosses pixel boundaries (reuse buffer)
-	r.crossings = r.crossings[:0]
+	for pix := pixLeft; pix <= pixRight; pix++ {
+		// Compute y at column boundaries
+		yAtPixLeft := e.y0 + dydx*(float64(pix)-e.x0)
+		yAtPixRight := e.y0 + dydx*(float64(pix+1)-e.x0)
 
-	// Add start and end y values
-	r.crossings = append(r.crossings, yTop, yBot)
+		// Clamp to edge's y-extent within scanline
+		segYMin := max(min(yAtPixLeft, yAtPixRight), yTop)
+		segYMax := min(max(yAtPixLeft, yAtPixRight), yBot)
 
-	// Add y values at integer x boundaries
-	for x := pixLeft + 1; x <= pixRight; x++ {
-		yAtX := e.y0 + dydx*(float64(x)-e.x0)
-		if yAtX > yTop && yAtX < yBot {
-			r.crossings = append(r.crossings, yAtX)
-		}
-	}
-
-	// Sort crossings by y
-	slices.Sort(r.crossings)
-
-	// Process each segment between consecutive crossings
-	for i := range len(r.crossings) - 1 {
-		y0 := r.crossings[i]
-		y1 := r.crossings[i+1]
-		segDy := y1 - y0
+		segDy := segYMax - segYMin
 		if segDy <= 0 {
 			continue
 		}
@@ -453,11 +438,9 @@ func (r *Rasterizer) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 		// Compute contribution for this segment
 		coverVal := sign * float32(segDy)
 
-		// Find which pixel this segment is in (use midpoint x)
-		yMid := (y0 + y1) / 2
+		// Compute average x within this pixel column
+		yMid := (segYMin + segYMax) / 2
 		xMid := e.x0 + e.dxdy*(yMid-e.y0)
-		pix := int(math.Floor(xMid))
-
 		xFrac := xMid - float64(pix)
 		areaVal := coverVal * float32(1-xFrac)
 
@@ -577,14 +560,9 @@ func (r *Rasterizer) fillSmallPath(xMin, xMax, yMin, yMax int, rule fillRule, em
 	clear(r.cover)
 	clear(r.area)
 
-	// Ensure xMin/xMax tracking buffers are large enough
-	r.rowXMin = slices.Grow(r.rowXMin[:0], height)[:height]
-	r.rowXMax = slices.Grow(r.rowXMax[:0], height)[:height]
-	// Initialize bounds to "no edges"
-	for i := range r.rowXMin {
-		r.rowXMin[i] = width
-		r.rowXMax[i] = -1
-	}
+	// Ensure row tracking buffer is large enough and clear it
+	r.rowHasEdges = slices.Grow(r.rowHasEdges[:0], height)[:height]
+	clear(r.rowHasEdges)
 
 	// Process all edges into 2D buffers
 	for i := range r.edges {
@@ -607,29 +585,13 @@ func (r *Rasterizer) fillSmallPath(xMin, xMax, yMin, yMax int, rule fillRule, em
 			row := y - yMin
 			rowOffset := row * width
 			r.accumulateEdge(e, y, r.cover[rowOffset:rowOffset+width], r.area[rowOffset:rowOffset+width], xMin, xMax)
-
-			// Update x bounds for this row
-			// Compute x at midpoint of edge within this scanline
-			yTop := max(float64(y), min(e.y0, e.y1))
-			yBot := min(float64(y+1), max(e.y0, e.y1))
-			yMid := (yTop + yBot) / 2
-			xMidF := e.x0 + e.dxdy*(yMid-e.y0)
-			x := int(math.Floor(xMidF))
-			x = max(x, xMin)
-			x = min(x, xMax-1)
-			xIdx := x - xMin
-			if xIdx < r.rowXMin[row] {
-				r.rowXMin[row] = xIdx
-			}
-			if xIdx > r.rowXMax[row] {
-				r.rowXMax[row] = xIdx
-			}
+			r.rowHasEdges[row] = true
 		}
 	}
 
 	// Integrate and emit each row
 	for row := range height {
-		if r.rowXMax[row] < 0 {
+		if !r.rowHasEdges[row] {
 			continue // no edges touched this row
 		}
 
@@ -774,11 +736,9 @@ func (r *Rasterizer) Reset(clip rect.Rect) {
 	r.area = r.area[:0]
 	r.edges = r.edges[:0]
 	r.activeIdx = r.activeIdx[:0]
-	r.rowXMin = r.rowXMin[:0]
-	r.rowXMax = r.rowXMax[:0]
+	r.rowHasEdges = r.rowHasEdges[:0]
 	r.stroke = r.stroke[:0]
 	r.strokeOffsets = r.strokeOffsets[:0]
-	r.crossings = r.crossings[:0]
 	r.segs = r.segs[:0]
 	r.segsOffsets = r.segsOffsets[:0]
 	r.subpathClosed = r.subpathClosed[:0]

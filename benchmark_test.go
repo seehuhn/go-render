@@ -29,14 +29,15 @@ import (
 	"seehuhn.de/go/geom/vec"
 )
 
-// BenchmarkRasterizerO benchmarks our rasterizer drawing an "O" shape.
-func BenchmarkRasterizerO(b *testing.B) {
+// BenchmarkRasterizerMethodA benchmarks using fillSmallPath (2D buffers).
+func BenchmarkRasterizerMethodA(b *testing.B) {
 	sizes := []int{20, 200, 2000}
 
 	for _, size := range sizes {
 		b.Run(fmt.Sprintf("%dx%d", size, size), func(b *testing.B) {
 			clip := rect.Rect{LLx: 0, LLy: 0, URx: float64(size), URy: float64(size)}
 			r := NewRasterizer(clip)
+			r.smallPathThreshold = 1 << 30 // Force method A
 
 			dst := image.NewAlpha(image.Rect(0, 0, size, size))
 
@@ -44,7 +45,6 @@ func BenchmarkRasterizerO(b *testing.B) {
 			outerR := float64(size) * 0.45
 			innerR := float64(size) * 0.30
 
-			// Create the "O" path: outer circle CCW, inner circle CW
 			oPath := makeOPath(center, center, outerR, innerR)
 
 			b.ResetTimer()
@@ -52,6 +52,42 @@ func BenchmarkRasterizerO(b *testing.B) {
 
 			for b.Loop() {
 				r.Reset(clip)
+				r.smallPathThreshold = 1 << 30 // Reset clears it
+				r.FillEvenOdd(oPath, func(y, xMin int, coverage []float32) {
+					row := dst.Pix[y*dst.Stride+xMin:]
+					for i, c := range coverage {
+						row[i] = uint8(c * 255)
+					}
+				})
+			}
+		})
+	}
+}
+
+// BenchmarkRasterizerMethodB benchmarks using fillLargePath (active edge list).
+func BenchmarkRasterizerMethodB(b *testing.B) {
+	sizes := []int{20, 200, 2000}
+
+	for _, size := range sizes {
+		b.Run(fmt.Sprintf("%dx%d", size, size), func(b *testing.B) {
+			clip := rect.Rect{LLx: 0, LLy: 0, URx: float64(size), URy: float64(size)}
+			r := NewRasterizer(clip)
+			r.smallPathThreshold = 0 // Force method B
+
+			dst := image.NewAlpha(image.Rect(0, 0, size, size))
+
+			center := float64(size) / 2
+			outerR := float64(size) * 0.45
+			innerR := float64(size) * 0.30
+
+			oPath := makeOPath(center, center, outerR, innerR)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			for b.Loop() {
+				r.Reset(clip)
+				r.smallPathThreshold = 0 // Reset clears it
 				r.FillEvenOdd(oPath, func(y, xMin int, coverage []float32) {
 					row := dst.Pix[y*dst.Stride+xMin:]
 					for i, c := range coverage {

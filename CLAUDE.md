@@ -41,7 +41,7 @@ The rasterizer computes signed trapezoidal area contributions per pixel:
 
 ### Key Files
 
-- `rasteriser.go` — Rasterizer struct, curve flattening, edge accumulation, fill methods
+- `raster.go` — Rasterizer struct, curve flattening, edge accumulation, fill methods
 - `stroke.go` — Stroke expansion: caps, joins, dashes, outline assembly
 - `docs/specification.md` — Complete algorithm specification
 
