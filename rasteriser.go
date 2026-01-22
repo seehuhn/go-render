@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package render
+package raster
 
 import (
 	"cmp"
@@ -35,42 +35,45 @@ type edge struct {
 	dxdy   float64 // (x1-x0)/(y1-y0), precomputed for x-intercept calculation
 }
 
-// Rasteriser converts vector paths to pixel coverage values.
-// The caller creates one instance and reuses it for multiple paths.
-// Internal buffers grow as needed but never shrink, achieving zero
+// Rasterizer converts vector paths to pixel coverage values—the fraction of
+// each pixel's area covered by the filled/stroked path, ranging from 0
+// (outside) to 1 (inside). Create one instance and reuse it for multiple
+// paths. Internal buffers grow as needed but never shrink, achieving zero
 // allocations in steady state.
-type Rasteriser struct {
-	// CTM is the current transformation matrix (user space to device space).
-	// Must be a non-singular matrix.
+//
+// A Rasterizer is not safe for concurrent use.
+type Rasterizer struct {
+	// CTM transforms from user space to device space. Must be non-singular.
 	CTM matrix.Matrix
 
-	// Clip defines the output region in device coordinates.
-	// Must be a non-empty rectangle with integer-aligned coordinates.
+	// Clip bounds output to this device-coordinate rectangle.
+	// Coordinates must be integer-aligned.
 	Clip rect.Rect
 
-	// Flatness is the curve flattening tolerance in device pixels.
-	// Must be > 0. Typical values are 0.25-1.0.
+	// Flatness controls curve approximation accuracy in device pixels.
+	// Typical values: 0.25–1.0. Must be positive.
 	Flatness float64
 
-	// Width is the stroke line width in user-space units.
-	// Must be > 0 for stroke operations.
+	// Width sets stroke thickness in user-space units.
+	// Must be positive for stroke operations.
 	Width float64
 
-	// Cap is the line cap style for stroke endpoints.
+	// Cap sets the style for stroke endpoints (butt, round, or square).
 	Cap graphics.LineCapStyle
 
-	// Join is the line join style for stroke corners.
+	// Join sets the style for stroke corners (miter, round, or bevel).
 	Join graphics.LineJoinStyle
 
-	// MiterLimit is the miter limit for miter joins.
-	// Must be >= 1.0.
+	// MiterLimit caps miter join length. Must be at least 1.0.
 	MiterLimit float64
 
-	// Dash is the dash pattern in user-space units.
-	// Nil means solid line (no dashing).
+	// Dash specifies alternating on/off lengths in user-space units.
+	// All elements must be non-negative, and at least one must be positive.
+	// Nil means solid (no dashing).
 	Dash []float64
 
-	// DashPhase is the offset into the dash pattern.
+	// DashPhase offsets into the dash pattern in user-space units.
+	// Can be any value (positive, negative, or zero).
 	DashPhase float64
 
 	// smallPathThreshold is the maximum bounding box area (in pixels) for
@@ -107,10 +110,10 @@ type Rasteriser struct {
 	dashedSegsOffsets []int           // start index of each dashed subpath
 }
 
-// NewRasteriser creates a new Rasteriser with the given clip rectangle
-// and PDF default values for all other parameters.
-func NewRasteriser(clip rect.Rect) *Rasteriser {
-	return &Rasteriser{
+// NewRasterizer returns a Rasterizer with the given clip rectangle and
+// PDF default values for other parameters.
+func NewRasterizer(clip rect.Rect) *Rasterizer {
+	return &Rasterizer{
 		CTM:        matrix.Identity,
 		Clip:       clip,
 		Flatness:   defaultFlatness,
@@ -125,7 +128,7 @@ func NewRasteriser(clip rect.Rect) *Rasteriser {
 
 // transformLinear applies only the 2×2 linear part of CTM to a vector.
 // Used for CTM-aware tolerance checking where translation is irrelevant.
-func (r *Rasteriser) transformLinear(v vec.Vec2) vec.Vec2 {
+func (r *Rasterizer) transformLinear(v vec.Vec2) vec.Vec2 {
 	return vec.Vec2{
 		X: r.CTM[0]*v.X + r.CTM[2]*v.Y,
 		Y: r.CTM[1]*v.X + r.CTM[3]*v.Y,
@@ -135,7 +138,7 @@ func (r *Rasteriser) transformLinear(v vec.Vec2) vec.Vec2 {
 // flattenQuadratic flattens a quadratic Bézier and calls emit for each line segment.
 // p0 is the start point (current point), p1 is control, p2 is endpoint.
 // All points are in user space; CTM-aware tolerance checking is used.
-func (r *Rasteriser) flattenQuadratic(p0, p1, p2 vec.Vec2, emit func(from, to vec.Vec2)) {
+func (r *Rasterizer) flattenQuadratic(p0, p1, p2 vec.Vec2, emit func(from, to vec.Vec2)) {
 	// Compute error vector: e = (P0 - 2*P1 + P2) / 4
 	e := p0.Sub(p1.Mul(2)).Add(p2).Mul(0.25)
 
@@ -163,7 +166,7 @@ func (r *Rasteriser) flattenQuadratic(p0, p1, p2 vec.Vec2, emit func(from, to ve
 
 // flattenCubic flattens a cubic Bézier and calls emit for each line segment.
 // p0 is start, p1/p2 are controls, p3 is endpoint. All in user space.
-func (r *Rasteriser) flattenCubic(p0, p1, p2, p3 vec.Vec2, emit func(from, to vec.Vec2)) {
+func (r *Rasterizer) flattenCubic(p0, p1, p2, p3 vec.Vec2, emit func(from, to vec.Vec2)) {
 	// Compute deviation vectors
 	d1 := p0.Sub(p1.Mul(2)).Add(p2) // P0 - 2*P1 + P2
 	d2 := p1.Sub(p2.Mul(2)).Add(p3) // P1 - 2*P2 + P3
@@ -199,19 +202,17 @@ func (r *Rasteriser) flattenCubic(p0, p1, p2, p3 vec.Vec2, emit func(from, to ve
 	}
 }
 
-// FillNonZero rasterises the path using the nonzero winding rule.
-// Coverage is delivered row-by-row via the emit callback.
-// The coverage slice passed to emit is only valid for the duration
-// of the callback.
-func (r *Rasteriser) FillNonZero(p *path.Data, emit func(y, xMin int, coverage []float32)) {
+// FillNonZero fills the path using the nonzero winding rule. The emit
+// callback receives coverage row-by-row; its slice argument is valid only
+// during the call.
+func (r *Rasterizer) FillNonZero(p *path.Data, emit func(y, xMin int, coverage []float32)) {
 	r.fill(p, fillNonZero, emit)
 }
 
-// FillEvenOdd rasterises the path using the even-odd fill rule.
-// Coverage is delivered row-by-row via the emit callback.
-// The coverage slice passed to emit is only valid for the duration
-// of the callback.
-func (r *Rasteriser) FillEvenOdd(p *path.Data, emit func(y, xMin int, coverage []float32)) {
+// FillEvenOdd fills the path using the even-odd rule. The emit callback
+// receives coverage row-by-row; its slice argument is valid only during
+// the call.
+func (r *Rasterizer) FillEvenOdd(p *path.Data, emit func(y, xMin int, coverage []float32)) {
 	r.fill(p, fillEvenOdd, emit)
 }
 
@@ -224,7 +225,7 @@ const (
 )
 
 // fill is the internal implementation shared by FillNonZero and FillEvenOdd.
-func (r *Rasteriser) fill(p *path.Data, rule fillRule, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasterizer) fill(p *path.Data, rule fillRule, emit func(y, xMin int, coverage []float32)) {
 	// Collect edges from path (returns bounding box clamped to clip)
 	xMin, xMax, yMin, yMax, ok := r.collectPathEdges(p)
 	if !ok {
@@ -244,7 +245,7 @@ func (r *Rasteriser) fill(p *path.Data, rule fillRule, emit func(y, xMin int, co
 
 // collectPathEdges walks the path, transforms to device space, and builds the edge list.
 // Returns the bounding box of all edges in device coordinates (clamped to clip).
-func (r *Rasteriser) collectPathEdges(p *path.Data) (xMin, xMax, yMin, yMax int, ok bool) {
+func (r *Rasterizer) collectPathEdges(p *path.Data) (xMin, xMax, yMin, yMax int, ok bool) {
 	r.edges = r.edges[:0]
 	r.edgeBBoxFirst = true
 
@@ -307,7 +308,7 @@ func (r *Rasteriser) collectPathEdges(p *path.Data) (xMin, xMax, yMin, yMax int,
 }
 
 // addEdge adds an edge from user space coordinates, transforming to device space.
-func (r *Rasteriser) addEdge(p0, p1 vec.Vec2) {
+func (r *Rasterizer) addEdge(p0, p1 vec.Vec2) {
 	// Transform to device space
 	dx0 := r.CTM[0]*p0.X + r.CTM[2]*p0.Y + r.CTM[4]
 	dy0 := r.CTM[1]*p0.X + r.CTM[3]*p0.Y + r.CTM[5]
@@ -365,7 +366,7 @@ func (r *Rasteriser) addEdge(p0, p1 vec.Vec2) {
 // The buffers are indexed by (x - bboxXMin), where bboxXMin/bboxXMax define the buffer range.
 // For edges spanning multiple pixels horizontally, this function splits the edge at pixel
 // boundaries and computes separate contributions for each pixel crossed.
-func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxXMin, bboxXMax int) {
+func (r *Rasterizer) accumulateEdge(e *edge, y int, cover, area []float32, bboxXMin, bboxXMax int) {
 	// Compute the portion of the edge within this scanline [y, y+1)
 	yTop := float64(y)
 	yBot := float64(y + 1)
@@ -474,7 +475,7 @@ func (r *Rasteriser) accumulateEdge(e *edge, y int, cover, area []float32, bboxX
 }
 
 // accumulateEdgeInColumn handles an edge segment that falls within a single pixel column.
-func (r *Rasteriser) accumulateEdgeInColumn(e *edge, yTop, yBot float64, sign float32, pix int, cover, area []float32, bboxXMin, bboxXMax int) {
+func (r *Rasterizer) accumulateEdgeInColumn(e *edge, yTop, yBot float64, sign float32, pix int, cover, area []float32, bboxXMin, bboxXMax int) {
 	coverVal := sign * float32(yBot-yTop)
 
 	if pix < bboxXMin {
@@ -565,7 +566,7 @@ func trimZeros(coverage []float32) (trimmed []float32, offset int) {
 // fillSmallPath rasterises using 2D buffers (Approach A).
 // Used for small paths where width*height < smallPathThreshold.
 // xMin, xMax, yMin, yMax define the path's bounding box (already clamped to clip).
-func (r *Rasteriser) fillSmallPath(xMin, xMax, yMin, yMax int, rule fillRule, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasterizer) fillSmallPath(xMin, xMax, yMin, yMax int, rule fillRule, emit func(y, xMin int, coverage []float32)) {
 	width := xMax - xMin
 	height := yMax - yMin
 
@@ -653,7 +654,7 @@ func (r *Rasteriser) fillSmallPath(xMin, xMax, yMin, yMax int, rule fillRule, em
 // fillLargePath rasterises using 1D buffers and an active edge list (Approach B).
 // Used for large paths where width*height >= smallPathThreshold.
 // xMin, xMax, yMin, yMax define the path's bounding box (already clamped to clip).
-func (r *Rasteriser) fillLargePath(xMin, xMax, yMin, yMax int, rule fillRule, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasterizer) fillLargePath(xMin, xMax, yMin, yMax int, rule fillRule, emit func(y, xMin int, coverage []float32)) {
 	width := xMax - xMin
 
 	// Ensure 1D buffers are large enough
@@ -754,10 +755,9 @@ func (r *Rasteriser) fillLargePath(xMin, xMax, yMin, yMax int, rule fillRule, em
 	}
 }
 
-// Reset resets the Rasteriser to its initial state with the given clip rectangle,
-// preserving internal buffer capacity for reuse. This is equivalent to creating
-// a new Rasteriser but without allocations if buffers are already large enough.
-func (r *Rasteriser) Reset(clip rect.Rect) {
+// Reset restores default state with a new clip rectangle, preserving buffer
+// capacity. Equivalent to NewRasterizer but avoids allocation.
+func (r *Rasterizer) Reset(clip rect.Rect) {
 	// Reset public state to defaults
 	r.CTM = matrix.Identity
 	r.Clip = clip
@@ -787,7 +787,7 @@ func (r *Rasteriser) Reset(clip rect.Rect) {
 	r.dashedSegsOffsets = r.dashedSegsOffsets[:0]
 }
 
-// Default values for rasteriser parameters.
+// Default values for rasterizer parameters.
 const (
 	// defaultFlatness is the default curve flattening tolerance in device
 	// pixels. Values of 0.25-1.0 are typical; 0.25 is below the threshold
@@ -800,7 +800,7 @@ const (
 	defaultMiterLimit = 10.0
 )
 
-// Numerical tolerances for the rasteriser.
+// Numerical tolerances for the rasterizer.
 const (
 	// horizontalEdgeThreshold is the minimum vertical extent for an edge
 	// to contribute to coverage. Edges with |y1 - y0| below this threshold

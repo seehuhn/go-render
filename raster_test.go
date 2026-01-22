@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package render
+package raster
 
 import (
 	"fmt"
@@ -91,7 +91,7 @@ func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int,
 		URx: float64(width),
 		URy: float64(height),
 	}
-	r := NewRasteriser(clip)
+	r := NewRasterizer(clip)
 	r.smallPathThreshold = threshold
 
 	// Apply CTM (zero-value means identity, which is already the default)
@@ -257,9 +257,9 @@ func TestTriangleCoverage(t *testing.T) {
 		LineTo(vec.Vec2{X: 10, Y: 1}).
 		Close()
 
-	// Create rasteriser with clip covering the triangle
+	// Create rasterizer with clip covering the triangle
 	clip := rect.Rect{LLx: 0, LLy: 0, URx: 10, URy: 1}
-	r := NewRasteriser(clip)
+	r := NewRasterizer(clip)
 
 	// Collect coverage values
 	coverage := make([]float32, 10)
@@ -284,19 +284,19 @@ func TestTriangleCoverage(t *testing.T) {
 	}
 }
 
-// BenchmarkRasteriseAll measures steady-state performance by reusing a single
-// Rasteriser across all test cases. This tests buffer reuse with varying clip sizes.
-func BenchmarkRasteriseAll(b *testing.B) {
+// BenchmarkRasterizeAll measures steady-state performance by reusing a single
+// Rasterizer across all test cases. This tests buffer reuse with varying clip sizes.
+func BenchmarkRasterizeAll(b *testing.B) {
 	// Collect all test cases
 	var cases []testcases.TestCase
 	for _, category := range slices.Sorted(maps.Keys(testcases.All)) {
 		cases = append(cases, testcases.All[category]...)
 	}
 
-	// Create rasteriser once, reuse across all iterations
-	r := NewRasteriser(rect.Rect{})
+	// Create rasterizer once, reuse across all iterations
+	r := NewRasterizer(rect.Rect{})
 
-	// No-op emit callback - we're measuring rasterisation, not compositing
+	// No-op emit callback - we're measuring rasterization, not compositing
 	emit := func(y, xMin int, coverage []float32) {}
 
 	b.ResetTimer()

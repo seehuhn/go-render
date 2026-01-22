@@ -21,7 +21,7 @@ import (
 )
 
 // largeCases contains test cases with bounding boxes > 65536 pixels
-// to exercise Approach B (active edge list) in the rasteriser.
+// to exercise Approach B (active edge list) in the rasterizer.
 var largeCases = []TestCase{
 	// Simple large rectangle - tests basic Approach B functionality
 	{

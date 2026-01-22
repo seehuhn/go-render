@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package render
+package raster
 
 import (
 	"fmt"
@@ -29,14 +29,14 @@ import (
 	"seehuhn.de/go/geom/vec"
 )
 
-// BenchmarkRasteriserO benchmarks our rasterizer drawing an "O" shape.
-func BenchmarkRasteriserO(b *testing.B) {
+// BenchmarkRasterizerO benchmarks our rasterizer drawing an "O" shape.
+func BenchmarkRasterizerO(b *testing.B) {
 	sizes := []int{20, 200, 2000}
 
 	for _, size := range sizes {
 		b.Run(fmt.Sprintf("%dx%d", size, size), func(b *testing.B) {
 			clip := rect.Rect{LLx: 0, LLy: 0, URx: float64(size), URy: float64(size)}
-			r := NewRasteriser(clip)
+			r := NewRasterizer(clip)
 
 			dst := image.NewAlpha(image.Rect(0, 0, size, size))
 

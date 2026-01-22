@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package render
+package raster
 
 import (
 	"math"
@@ -31,13 +31,10 @@ type strokeSegment struct {
 	N    vec.Vec2 // unit normal (90° CCW from T)
 }
 
-// Stroke rasterises the path as a stroked outline.
-// Uses Width, Cap, Join, MiterLimit, Dash, and DashPhase from the Rasteriser.
-// The stroke outline is filled using the nonzero winding rule.
-// Coverage is delivered row-by-row via the emit callback.
-// The coverage slice passed to emit is only valid for the duration
-// of the callback.
-func (r *Rasteriser) Stroke(p *path.Data, emit func(y, xMin int, coverage []float32)) {
+// Stroke renders the path as a stroked outline using Width, Cap, Join,
+// MiterLimit, Dash, and DashPhase. The emit callback receives coverage
+// row-by-row; its slice argument is valid only during the call.
+func (r *Rasterizer) Stroke(p *path.Data, emit func(y, xMin int, coverage []float32)) {
 	// Flatten path into subpaths (results stored in r.segs, etc.)
 	r.flattenPath(p)
 	if len(r.segsOffsets) == 0 && len(r.degeneratePoints) == 0 {
@@ -71,7 +68,7 @@ func (r *Rasteriser) Stroke(p *path.Data, emit func(y, xMin int, coverage []floa
 }
 
 // strokeAllSubpaths strokes all flattened subpaths (non-dashed case).
-func (r *Rasteriser) strokeAllSubpaths() {
+func (r *Rasterizer) strokeAllSubpaths() {
 	numSubpaths := len(r.segsOffsets)
 	for i := range numSubpaths {
 		segs := r.getSubpathSegments(i)
@@ -89,7 +86,7 @@ func (r *Rasteriser) strokeAllSubpaths() {
 }
 
 // getSubpathSegments returns the segments for subpath i as a slice into segs.
-func (r *Rasteriser) getSubpathSegments(i int) []strokeSegment {
+func (r *Rasterizer) getSubpathSegments(i int) []strokeSegment {
 	start := r.segsOffsets[i]
 	var end int
 	if i+1 < len(r.segsOffsets) {
@@ -101,7 +98,7 @@ func (r *Rasteriser) getSubpathSegments(i int) []strokeSegment {
 }
 
 // strokeDashedSubpaths applies dash pattern and strokes the resulting segments.
-func (r *Rasteriser) strokeDashedSubpaths() {
+func (r *Rasterizer) strokeDashedSubpaths() {
 	// Apply dash pattern - populates r.dashedSegs and r.dashedSegsOffsets
 	r.applyDashPattern()
 
@@ -137,7 +134,7 @@ func (r *Rasteriser) strokeDashedSubpaths() {
 }
 
 // getDashedSegments returns the segments for dashed subpath i as a slice into dashedSegs.
-func (r *Rasteriser) getDashedSegments(i int) []strokeSegment {
+func (r *Rasterizer) getDashedSegments(i int) []strokeSegment {
 	start := r.dashedSegsOffsets[i]
 	var end int
 	if i+1 < len(r.dashedSegsOffsets) {
@@ -154,7 +151,7 @@ func (r *Rasteriser) getDashedSegments(i int) []strokeSegment {
 //   - r.segsOffsets: start index of each subpath in segs
 //   - r.subpathClosed: whether each subpath is closed
 //   - r.degeneratePoints: degenerate subpaths (no orientation)
-func (r *Rasteriser) flattenPath(p *path.Data) {
+func (r *Rasterizer) flattenPath(p *path.Data) {
 	// Clear buffers (preserving capacity)
 	r.segs = r.segs[:0]
 	r.segsOffsets = r.segsOffsets[:0]
@@ -260,7 +257,7 @@ func (r *Rasteriser) flattenPath(p *path.Data) {
 }
 
 // addStrokeSegment adds a line segment to the flattening buffer.
-func (r *Rasteriser) addStrokeSegment(a, b vec.Vec2) {
+func (r *Rasterizer) addStrokeSegment(a, b vec.Vec2) {
 	d := b.Sub(a)
 	length := d.Length()
 	if length < zeroLengthThreshold {
@@ -276,7 +273,7 @@ func (r *Rasteriser) addStrokeSegment(a, b vec.Vec2) {
 // then backward pass on the -N side. Join geometry is added on the outer side
 // of each corner, which depends on the turn direction.
 // Zero-length subpaths are handled by the caller before invoking this method.
-func (r *Rasteriser) strokeSubpath(segs []strokeSegment, closed bool) {
+func (r *Rasterizer) strokeSubpath(segs []strokeSegment, closed bool) {
 	if len(segs) == 0 {
 		return // empty, nothing to do
 	}
@@ -293,39 +290,82 @@ func (r *Rasteriser) strokeSubpath(segs []strokeSegment, closed bool) {
 
 		// Forward pass: +N side (right side of path direction)
 		// Start with the closing corner's +N point from segment 0's perspective
+		sinThetaClose := last.T.X*first.T.Y - last.T.Y*first.T.X
 		r.stroke = append(r.stroke, first.A.Add(first.N.Mul(d)))
 		for i := range len(segs) {
 			seg := &segs[i]
-			r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
-			// Add join to next segment if outer side is +N
 			if i < len(segs)-1 {
 				next := &segs[i+1]
-				r.addJoinIfOuter(seg.B, seg.T, next.T, d, true)
-				// Add next segment's A point after join
-				r.stroke = append(r.stroke, next.A.Add(next.N.Mul(d)))
+				sinTheta := seg.T.X*next.T.Y - seg.T.Y*next.T.X
+				if math.Abs(sinTheta) < collinearityThreshold {
+					// Nearly collinear: just add offset points
+					r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
+					r.stroke = append(r.stroke, next.A.Add(next.N.Mul(d)))
+				} else if sinTheta > 0 {
+					// Right turn: +N is inner side
+					r.addInnerIntersectionOrOffsets(seg.B, seg.T, next.T, seg.N, next.N, d, true)
+				} else {
+					// Left turn: +N is outer side
+					r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
+					r.addJoin(seg.B, seg.T, next.T, d, true)
+					r.stroke = append(r.stroke, next.A.Add(next.N.Mul(d)))
+				}
+			} else {
+				// Last segment: handle closing corner
+				if math.Abs(sinThetaClose) < collinearityThreshold {
+					// Nearly collinear: add both offset points
+					r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
+					r.stroke = append(r.stroke, first.A.Add(first.N.Mul(d)))
+				} else if sinThetaClose > 0 {
+					// Right turn: +N is inner side - intersection replaces seg.B and first.A
+					r.addInnerIntersectionOrOffsets(seg.B, seg.T, first.T, seg.N, first.N, d, true)
+				} else {
+					// Left turn: +N is outer side
+					r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
+					r.addJoin(seg.B, seg.T, first.T, d, true)
+					r.stroke = append(r.stroke, first.A.Add(first.N.Mul(d)))
+				}
 			}
 		}
-		// Closing corner: join from last segment to first, then transition to -N side
-		r.addJoinIfOuter(last.B, last.T, first.T, d, true)
-		// Add first segment's A from +N side (same physical point, different offset)
-		r.stroke = append(r.stroke, first.A.Add(first.N.Mul(d)))
 
 		// Backward pass: -N side (left side of path direction)
-		// Start with the closing corner's -N point from segment 0's perspective
-		r.stroke = append(r.stroke, first.A.Sub(first.N.Mul(d)))
-		// Add closing corner join on -N side
-		r.addJoinIfOuter(first.A, last.T, first.T, d, false)
-		// Continue with last segment's B from -N side
-		r.stroke = append(r.stroke, last.B.Sub(last.N.Mul(d)))
+		// Handle closing corner first, then iterate backwards through segments
+		if math.Abs(sinThetaClose) < collinearityThreshold {
+			// Nearly collinear: add both offset points
+			r.stroke = append(r.stroke, first.A.Sub(first.N.Mul(d)))
+			r.stroke = append(r.stroke, last.B.Sub(last.N.Mul(d)))
+		} else if sinThetaClose > 0 {
+			// Right turn: -N is outer side
+			r.stroke = append(r.stroke, first.A.Sub(first.N.Mul(d)))
+			r.addJoin(first.A, last.T, first.T, d, false)
+			r.stroke = append(r.stroke, last.B.Sub(last.N.Mul(d)))
+		} else {
+			// Left turn: -N is inner side - intersection replaces first.A and last.B
+			r.addInnerIntersectionOrOffsets(first.A, last.T, first.T, last.N, first.N, d, false)
+		}
 
 		for i := len(segs) - 1; i >= 0; i-- {
 			seg := &segs[i]
-			r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
 			// Add join at this segment's A point (corner with previous segment)
 			if i > 0 {
 				prev := &segs[i-1]
-				r.addJoinIfOuter(seg.A, prev.T, seg.T, d, false)
-				r.stroke = append(r.stroke, prev.B.Sub(prev.N.Mul(d)))
+				sinTheta := prev.T.X*seg.T.Y - prev.T.Y*seg.T.X
+				if math.Abs(sinTheta) < collinearityThreshold {
+					// Nearly collinear: just add offset points
+					r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
+					r.stroke = append(r.stroke, prev.B.Sub(prev.N.Mul(d)))
+				} else if sinTheta > 0 {
+					// Right turn: -N is outer side
+					r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
+					r.addJoin(seg.A, prev.T, seg.T, d, false)
+					r.stroke = append(r.stroke, prev.B.Sub(prev.N.Mul(d)))
+				} else {
+					// Left turn: -N is inner side
+					r.addInnerIntersectionOrOffsets(seg.A, prev.T, seg.T, prev.N, seg.N, d, false)
+				}
+			} else {
+				// First segment (i=0): add closing point of polygon
+				r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
 			}
 		}
 
@@ -338,12 +378,29 @@ func (r *Rasteriser) strokeSubpath(segs []strokeSegment, closed bool) {
 		r.addCap(first.A, first.T.Mul(-1), d)
 
 		// Forward pass: +N side (right side of path direction)
+		skipNextA := false
 		for i := range len(segs) {
 			seg := &segs[i]
-			r.stroke = append(r.stroke, seg.A.Add(seg.N.Mul(d)))
-			r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
+			if !skipNextA {
+				r.stroke = append(r.stroke, seg.A.Add(seg.N.Mul(d)))
+			}
+			skipNextA = false
 			if i < len(segs)-1 {
-				r.addJoinIfOuter(seg.B, seg.T, segs[i+1].T, d, true)
+				next := &segs[i+1]
+				sinTheta := seg.T.X*next.T.Y - seg.T.Y*next.T.X
+				if math.Abs(sinTheta) < collinearityThreshold {
+					// Nearly collinear: just add offset points
+					r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
+				} else if sinTheta > 0 {
+					// Right turn: +N is inner side
+					skipNextA = r.addInnerIntersectionOrOffsets(seg.B, seg.T, next.T, seg.N, next.N, d, true)
+				} else {
+					// Left turn: +N is outer side
+					r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
+					r.addJoin(seg.B, seg.T, next.T, d, true)
+				}
+			} else {
+				r.stroke = append(r.stroke, seg.B.Add(seg.N.Mul(d)))
 			}
 		}
 
@@ -351,14 +408,30 @@ func (r *Rasteriser) strokeSubpath(segs []strokeSegment, closed bool) {
 		r.addCap(last.B, last.T, d)
 
 		// Backward pass: -N side (left side of path direction)
+		skipNextB := false
 		for i := len(segs) - 1; i >= 0; i-- {
 			seg := &segs[i]
-			r.stroke = append(r.stroke, seg.B.Sub(seg.N.Mul(d)))
-			r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
-			// Add join after this segment's A point (at the corner)
+			if !skipNextB {
+				r.stroke = append(r.stroke, seg.B.Sub(seg.N.Mul(d)))
+			}
+			skipNextB = false
+			// Add join at this segment's A point (corner with previous segment)
 			if i > 0 {
 				prev := &segs[i-1]
-				r.addJoinIfOuter(seg.A, prev.T, seg.T, d, false)
+				sinTheta := prev.T.X*seg.T.Y - prev.T.Y*seg.T.X
+				if math.Abs(sinTheta) < collinearityThreshold {
+					// Nearly collinear: just add offset points
+					r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
+				} else if sinTheta > 0 {
+					// Right turn: -N is outer side
+					r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
+					r.addJoin(seg.A, prev.T, seg.T, d, false)
+				} else {
+					// Left turn: -N is inner side
+					skipNextB = r.addInnerIntersectionOrOffsets(seg.A, prev.T, seg.T, prev.N, seg.N, d, false)
+				}
+			} else {
+				r.stroke = append(r.stroke, seg.A.Sub(seg.N.Mul(d)))
 			}
 		}
 	}
@@ -367,7 +440,7 @@ func (r *Rasteriser) strokeSubpath(segs []strokeSegment, closed bool) {
 // addCap adds a line cap to the stroke outline at point P.
 // T is the outward tangent direction (away from the line).
 // d is half the stroke width.
-func (r *Rasteriser) addCap(P, T vec.Vec2, d float64) {
+func (r *Rasterizer) addCap(P, T vec.Vec2, d float64) {
 	N := vec.Vec2{X: -T.Y, Y: T.X} // normal (90° CCW from T)
 
 	switch r.Cap {
@@ -391,38 +464,65 @@ func (r *Rasteriser) addCap(P, T vec.Vec2, d float64) {
 	}
 }
 
-// addJoinIfOuter adds a line join at point P only if we're on the outer side of the corner.
-// isPositiveNormalSide indicates whether we're currently building the +N side (true) or -N side (false).
-// Join geometry is only added when the outer side matches the current side.
-func (r *Rasteriser) addJoinIfOuter(P, T1, T2 vec.Vec2, d float64, isPositiveNormalSide bool) {
-	// Compute angle between tangents
-	sinTheta := T1.X*T2.Y - T1.Y*T2.X // cross product Z component
+// computeInnerIntersection returns the intersection point of the two inner
+// offset lines at a corner. Returns the point and ok=true if valid.
+// For nearly collinear segments, returns ok=false.
+func computeInnerIntersection(P, T1, T2 vec.Vec2, d float64, isPositiveNormalSide bool) (vec.Vec2, bool) {
+	cosTheta := T1.Dot(T2)
 
-	// Skip if nearly collinear
-	if sinTheta > -collinearityThreshold && sinTheta < collinearityThreshold {
-		return
+	// Nearly collinear - no meaningful intersection
+	if cosTheta > 1-1e-9 {
+		return vec.Vec2{}, false
 	}
 
-	// Determine which side is outer:
-	// N = (-T.Y, T.X) points to the RIGHT of the walking direction in screen coords (Y down).
-	// sinTheta > 0 means right turn (CW visually), outer side is LEFT (-N side)
-	// sinTheta < 0 means left turn (CCW visually), outer side is RIGHT (+N side)
-	outerIsLeft := sinTheta > 0
-
-	// Only add join geometry if we're on the outer side
-	// Forward pass (+N) is outer when outerIsLeft is false (left turn)
-	// Backward pass (-N) is outer when outerIsLeft is true (right turn)
-	if isPositiveNormalSide == outerIsLeft {
-		return // inner side, skip join geometry
+	// half_angle = cos(θ/2) = sqrt((1 + cos_θ) / 2)
+	halfAngle := math.Sqrt((1 + cosTheta) / 2)
+	if halfAngle < 1e-9 {
+		return vec.Vec2{}, false
 	}
 
-	r.addJoin(P, T1, T2, d, isPositiveNormalSide)
+	N1 := vec.Vec2{X: -T1.Y, Y: T1.X}
+	N2 := vec.Vec2{X: -T2.Y, Y: T2.X}
+
+	// Inner direction: for +N inner, use N1+N2; for -N inner, use -(N1+N2)
+	innerDir := N1.Add(N2)
+	if !isPositiveNormalSide {
+		innerDir = innerDir.Mul(-1) // -N side inner → negate
+	}
+
+	innerDirLen := innerDir.Length()
+	if innerDirLen < 1e-9 {
+		return vec.Vec2{}, false
+	}
+	innerDir = innerDir.Mul(1 / innerDirLen)
+
+	return P.Add(innerDir.Mul(d / halfAngle)), true
+}
+
+// addInnerIntersectionOrOffsets handles the inner side of a corner.
+// If we can compute an intersection, adds just that point.
+// Otherwise adds both offset points (fallback to current behavior).
+// Returns true if intersection was used (next.A offset should be skipped).
+func (r *Rasterizer) addInnerIntersectionOrOffsets(P, T1, T2, N1, N2 vec.Vec2, d float64, isPositiveNormalSide bool) bool {
+	if innerPt, ok := computeInnerIntersection(P, T1, T2, d, isPositiveNormalSide); ok {
+		r.stroke = append(r.stroke, innerPt)
+		return true // skip next.A offset
+	}
+	// Fallback: add both offset points
+	if isPositiveNormalSide {
+		r.stroke = append(r.stroke, P.Add(N1.Mul(d)))
+		r.stroke = append(r.stroke, P.Add(N2.Mul(d)))
+	} else {
+		r.stroke = append(r.stroke, P.Sub(N1.Mul(d)))
+		r.stroke = append(r.stroke, P.Sub(N2.Mul(d)))
+	}
+	return false
 }
 
 // addJoin adds a line join at point P where tangent changes from T1 to T2.
 // d is half the stroke width.
 // isPositiveNormalSide indicates which side of the stroke we're building.
-func (r *Rasteriser) addJoin(P, T1, T2 vec.Vec2, d float64, isPositiveNormalSide bool) {
+func (r *Rasterizer) addJoin(P, T1, T2 vec.Vec2, d float64, isPositiveNormalSide bool) {
 	// Compute angle between tangents
 	cosTheta := T1.Dot(T2)
 	sinTheta := T1.X*T2.Y - T1.Y*T2.X // cross product Z component
@@ -516,7 +616,7 @@ func (r *Rasteriser) addJoin(P, T1, T2 vec.Vec2, d float64, isPositiveNormalSide
 // startDir is the unit vector from center to arc start.
 // sweep is the sweep angle in radians (positive = CCW).
 // includeStart indicates whether to include the start point (false if caller already added it).
-func (r *Rasteriser) addArc(center vec.Vec2, radius float64, startDir vec.Vec2, sweep float64, includeStart bool) {
+func (r *Rasterizer) addArc(center vec.Vec2, radius float64, startDir vec.Vec2, sweep float64, includeStart bool) {
 	// Compute number of segments based on flatness tolerance
 	// Using device-space radius for segment count
 	devRadius := r.transformLinear(vec.Vec2{X: radius, Y: 0}).Length()
@@ -572,7 +672,7 @@ func (r *Rasteriser) addArc(center vec.Vec2, radius float64, startDir vec.Vec2, 
 // addSquare adds a filled square to the stroke outline for a zero-length
 // dash segment with square caps. The square is centered at the point with
 // side length = 2*d (i.e., the line width), oriented by the tangent T.
-func (r *Rasteriser) addSquare(center vec.Vec2, T vec.Vec2, d float64) {
+func (r *Rasterizer) addSquare(center vec.Vec2, T vec.Vec2, d float64) {
 	N := vec.Vec2{X: -T.Y, Y: T.X} // normal (90° CCW from T)
 	// Four corners of the square
 	r.stroke = append(r.stroke,
@@ -585,7 +685,7 @@ func (r *Rasteriser) addSquare(center vec.Vec2, T vec.Vec2, d float64) {
 
 // applyDashPattern applies the dash pattern to flattened subpaths.
 // Results are stored in r.dashedSegs and r.dashedSegsOffsets.
-func (r *Rasteriser) applyDashPattern() {
+func (r *Rasterizer) applyDashPattern() {
 	// Clear output buffers (preserving capacity)
 	r.dashedSegs = r.dashedSegs[:0]
 	r.dashedSegsOffsets = r.dashedSegsOffsets[:0]
@@ -744,7 +844,7 @@ func (r *Rasteriser) applyDashPattern() {
 
 // fillStrokeOutlines fills all collected stroke polygons as a compound path.
 // Using nonzero winding rule ensures overlapping regions are painted once.
-func (r *Rasteriser) fillStrokeOutlines(emit func(y, xMin int, coverage []float32)) {
+func (r *Rasterizer) fillStrokeOutlines(emit func(y, xMin int, coverage []float32)) {
 	if len(r.strokeOffsets) == 0 {
 		return
 	}
@@ -768,7 +868,7 @@ func (r *Rasteriser) fillStrokeOutlines(emit func(y, xMin int, coverage []float3
 
 // collectStrokeEdges builds the edge list directly from stroke polygons.
 // This avoids creating an intermediate path representation.
-func (r *Rasteriser) collectStrokeEdges() (xMin, xMax, yMin, yMax int, ok bool) {
+func (r *Rasterizer) collectStrokeEdges() (xMin, xMax, yMin, yMax int, ok bool) {
 	r.edges = r.edges[:0]
 	r.edgeBBoxFirst = true
 

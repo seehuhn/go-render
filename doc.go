@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// Package render implements a 2D rasterizer for the PDF/PostScript imaging model.
-package render
+// Package raster rasterises 2D vector paths to pixel coverage using the
+// PDF/PostScript imaging model.
+package raster
 
 //go:generate go run ./testcases/genpdf
