@@ -225,6 +225,13 @@ var fillCases = []TestCase{
 		Height: 32,
 		Op:     Fill{Rule: NonZero},
 	},
+	{
+		Name:   "mixed_close",
+		Path:   mixedClose(),
+		Width:  64,
+		Height: 64,
+		Op:     Fill{Rule: NonZero},
+	},
 }
 
 // triangle builds a triangular path.
@@ -402,5 +409,23 @@ func clippedNestedRects() *path.Data {
 		LineTo(pt(4, 20)).
 		LineTo(pt(28, 20)).
 		LineTo(pt(28, -4)).
+		Close()
+}
+
+// mixedClose builds two rectangles: first without explicit close, second with close.
+func mixedClose() *path.Data {
+	// first rectangle (no close)
+	p := (&path.Data{}).
+		MoveTo(pt(2, 2)).
+		LineTo(pt(30, 2)).
+		LineTo(pt(30, 30)).
+		LineTo(pt(2, 30))
+
+	// second rectangle (with close)
+	return p.
+		MoveTo(pt(34, 34)).
+		LineTo(pt(62, 34)).
+		LineTo(pt(62, 62)).
+		LineTo(pt(34, 62)).
 		Close()
 }

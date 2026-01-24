@@ -250,14 +250,20 @@ func (r *Rasterizer) collectPathEdges(p *path.Data) (xMin, xMax, yMin, yMax int,
 	// Path state
 	var current vec.Vec2 // current point (user space)
 	var subpath vec.Vec2 // subpath start (user space)
+	hasSubpath := false
 
 	// Walk the path using direct field access (no iterator allocation)
 	coordIdx := 0
 	for _, cmd := range p.Cmds {
 		switch cmd {
 		case path.CmdMoveTo:
+			// implicitly close previous subpath
+			if hasSubpath && current != subpath {
+				r.addEdge(current, subpath)
+			}
 			current = p.Coords[coordIdx]
 			subpath = current
+			hasSubpath = true
 			coordIdx++
 
 		case path.CmdLineTo:
@@ -280,7 +286,13 @@ func (r *Rasterizer) collectPathEdges(p *path.Data) (xMin, xMax, yMin, yMax int,
 				r.addEdge(current, subpath)
 			}
 			current = subpath
+			hasSubpath = false
 		}
+	}
+
+	// implicitly close final subpath
+	if hasSubpath && current != subpath {
+		r.addEdge(current, subpath)
 	}
 
 	if len(r.edges) == 0 {

@@ -56,6 +56,12 @@ The stroke pipeline receives the path in user space, flattens curves (§5), expa
 
 Both pipelines end by transforming to device space and rasterising. The core rasteriser (§3) always operates on line segments in device coordinates.
 
+### 2.5 Subpath Closing
+
+Each subpath is implicitly closed. When a MoveTo command starts a new subpath, the rasteriser adds a closing edge from the current point back to the start of the previous subpath (if any). After processing all path commands, the final subpath is also closed. This matches PDF/PostScript semantics where all filled regions are closed shapes.
+
+Explicit Close commands have the same effect as an implicit close followed by setting the current point to the subpath start. A path with only MoveTo commands (no drawing operations) produces no edges.
+
 ---
 
 ## 3. Core Algorithm: Signed-Area Coverage Accumulation
