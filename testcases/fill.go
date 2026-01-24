@@ -218,6 +218,13 @@ var fillCases = []TestCase{
 		Height: 64,
 		Op:     Fill{Rule: NonZero},
 	},
+	{
+		Name:   "clipped_nested_rects",
+		Path:   clippedNestedRects(),
+		Width:  32,
+		Height: 32,
+		Op:     Fill{Rule: NonZero},
+	},
 }
 
 // triangle builds a triangular path.
@@ -374,5 +381,26 @@ func nearVerticalQuad(x1, y1, x2, y2 float64) *path.Data {
 		LineTo(pt(x1+width, y1)).
 		LineTo(pt(x2+width, y2)).
 		LineTo(pt(x2, y2)).
+		Close()
+}
+
+// clippedNestedRects builds two nested rectangles that extend outside the clip region.
+// Outer: (-4,-8)--(36,-8)--(36,28)--(-4,28)--close (clockwise)
+// Inner: (4,-4)--(4,20)--(28,20)--(28,-4)--close (counter-clockwise for hole)
+func clippedNestedRects() *path.Data {
+	// outer rectangle (clockwise)
+	p := (&path.Data{}).
+		MoveTo(pt(-4, -8)).
+		LineTo(pt(36, -8)).
+		LineTo(pt(36, 28)).
+		LineTo(pt(-4, 28)).
+		Close()
+
+	// inner rectangle (counter-clockwise for hole)
+	return p.
+		MoveTo(pt(4, -4)).
+		LineTo(pt(4, 20)).
+		LineTo(pt(28, 20)).
+		LineTo(pt(28, -4)).
 		Close()
 }

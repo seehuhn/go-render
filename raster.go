@@ -84,10 +84,10 @@ type Rasterizer struct {
 	// Internal buffers (reused across calls)
 	cover         []float32  // coverage accumulation: cover change per pixel; reused as output
 	area          []float32  // coverage accumulation: area within pixel
-	edges        []edge     // edge list for current path (device coordinates)
-	activeIdx    []int      // indices of active edges
-	rowHasEdges  []bool     // per-scanline flag: true if any edge contributes
-	stroke       []vec.Vec2 // stroke outline vertices (all subpaths contiguous)
+	edges         []edge     // edge list for current path (device coordinates)
+	activeIdx     []int      // indices of active edges
+	rowHasEdges   []bool     // per-scanline flag: true if any edge contributes
+	stroke        []vec.Vec2 // stroke outline vertices (all subpaths contiguous)
 	strokeOffsets []int      // start index of each stroke polygon in stroke[]
 
 	// Flattening buffers (for stroke path processing)
@@ -716,7 +716,6 @@ func (r *Rasterizer) fillLargePath(xMin, xMax, yMin, yMax int, rule fillRule, em
 		}
 	}
 }
-
 
 // Default values for rasterizer parameters.
 const (
