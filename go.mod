@@ -4,16 +4,16 @@ go 1.24
 
 require (
 	golang.org/x/image v0.28.0
-	seehuhn.de/go/geom v0.6.1-0.20260122190945-198dce7a651c
-	seehuhn.de/go/pdf v0.6.1-0.20260120165640-8044465e8b10
+	seehuhn.de/go/geom v0.7.0
+	seehuhn.de/go/pdf v0.7.0
 )
 
 require (
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476 // indirect
 	golang.org/x/text v0.26.0 // indirect
-	seehuhn.de/go/icc v0.0.0-20240801195843-cfc244e2c55a // indirect
-	seehuhn.de/go/postscript v0.6.1-0.20250805053126-20e516ce5746 // indirect
-	seehuhn.de/go/sfnt v0.6.1-0.20250805053320-86c13f5239b6 // indirect
-	seehuhn.de/go/xmp v0.3.1-0.20250914024658-99b3372159f4 // indirect
+	seehuhn.de/go/icc v0.7.0 // indirect
+	seehuhn.de/go/postscript v0.7.0 // indirect
+	seehuhn.de/go/sfnt v0.7.0 // indirect
+	seehuhn.de/go/xmp v0.7.0 // indirect
 )
