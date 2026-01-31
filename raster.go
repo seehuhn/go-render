@@ -203,14 +203,14 @@ func (r *Rasterizer) flattenCubic(p0, p1, p2, p3 vec.Vec2, emit func(from, to ve
 // FillNonZero fills the path using the nonzero winding rule. The emit
 // callback receives coverage row-by-row; its slice argument is valid only
 // during the call.
-func (r *Rasterizer) FillNonZero(p *path.Data, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasterizer) FillNonZero(p path.Path, emit func(y, xMin int, coverage []float32)) {
 	r.fill(p, fillNonZero, emit)
 }
 
 // FillEvenOdd fills the path using the even-odd rule. The emit callback
 // receives coverage row-by-row; its slice argument is valid only during
 // the call.
-func (r *Rasterizer) FillEvenOdd(p *path.Data, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasterizer) FillEvenOdd(p path.Path, emit func(y, xMin int, coverage []float32)) {
 	r.fill(p, fillEvenOdd, emit)
 }
 
@@ -223,7 +223,7 @@ const (
 )
 
 // fill is the internal implementation shared by FillNonZero and FillEvenOdd.
-func (r *Rasterizer) fill(p *path.Data, rule fillRule, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasterizer) fill(p path.Path, rule fillRule, emit func(y, xMin int, coverage []float32)) {
 	// Collect edges from path (returns bounding box clamped to clip)
 	xMin, xMax, yMin, yMax, ok := r.collectPathEdges(p)
 	if !ok {
@@ -243,43 +243,37 @@ func (r *Rasterizer) fill(p *path.Data, rule fillRule, emit func(y, xMin int, co
 
 // collectPathEdges walks the path, transforms to device space, and builds the edge list.
 // Returns the bounding box of all edges in device coordinates (clamped to clip).
-func (r *Rasterizer) collectPathEdges(p *path.Data) (xMin, xMax, yMin, yMax int, ok bool) {
+func (r *Rasterizer) collectPathEdges(p path.Path) (xMin, xMax, yMin, yMax int, ok bool) {
 	r.edges = r.edges[:0]
 	r.edgeBBoxFirst = true
 
-	// Path state
+	// path state
 	var current vec.Vec2 // current point (user space)
 	var subpath vec.Vec2 // subpath start (user space)
 	hasSubpath := false
 
-	// Walk the path using direct field access (no iterator allocation)
-	coordIdx := 0
-	for _, cmd := range p.Cmds {
+	for cmd, pts := range p {
 		switch cmd {
 		case path.CmdMoveTo:
 			// implicitly close previous subpath
 			if hasSubpath && current != subpath {
 				r.addEdge(current, subpath)
 			}
-			current = p.Coords[coordIdx]
+			current = pts[0]
 			subpath = current
 			hasSubpath = true
-			coordIdx++
 
 		case path.CmdLineTo:
-			r.addEdge(current, p.Coords[coordIdx])
-			current = p.Coords[coordIdx]
-			coordIdx++
+			r.addEdge(current, pts[0])
+			current = pts[0]
 
 		case path.CmdQuadTo:
-			r.flattenQuadratic(current, p.Coords[coordIdx], p.Coords[coordIdx+1], r.addEdge)
-			current = p.Coords[coordIdx+1]
-			coordIdx += 2
+			r.flattenQuadratic(current, pts[0], pts[1], r.addEdge)
+			current = pts[1]
 
 		case path.CmdCubeTo:
-			r.flattenCubic(current, p.Coords[coordIdx], p.Coords[coordIdx+1], p.Coords[coordIdx+2], r.addEdge)
-			current = p.Coords[coordIdx+2]
-			coordIdx += 3
+			r.flattenCubic(current, pts[0], pts[1], pts[2], r.addEdge)
+			current = pts[2]
 
 		case path.CmdClose:
 			if current != subpath {
@@ -299,7 +293,7 @@ func (r *Rasterizer) collectPathEdges(p *path.Data) (xMin, xMax, yMin, yMax int,
 		return 0, 0, 0, 0, false
 	}
 
-	// Clamp to clip bounds and convert to integers
+	// clamp to clip bounds and convert to integers
 	clipXMin := int(r.Clip.LLx)
 	clipXMax := int(r.Clip.URx)
 	clipYMin := int(r.Clip.LLy)

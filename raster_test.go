@@ -111,9 +111,9 @@ func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int,
 	switch op := tc.Op.(type) {
 	case testcases.Fill:
 		if op.Rule == testcases.EvenOdd {
-			r.FillEvenOdd(tc.Path, emit)
+			r.FillEvenOdd(tc.Path.Iter(), emit)
 		} else {
-			r.FillNonZero(tc.Path, emit)
+			r.FillNonZero(tc.Path.Iter(), emit)
 		}
 	case testcases.Stroke:
 		r.Width = op.Width
@@ -122,7 +122,7 @@ func renderExample(tc testcases.TestCase, buf []byte, width, height, stride int,
 		r.MiterLimit = op.MiterLimit
 		r.Dash = op.Dash
 		r.DashPhase = op.DashPhase
-		r.Stroke(tc.Path, emit)
+		r.Stroke(tc.Path.Iter(), emit)
 	}
 }
 
@@ -271,7 +271,7 @@ func TestTriangleCoverage(t *testing.T) {
 		}
 	}
 
-	r.FillNonZero(trianglePath, emit)
+	r.FillNonZero(trianglePath.Iter(), emit)
 
 	// Verify each pixel's coverage
 	const epsilon = 1e-6
@@ -321,9 +321,9 @@ func BenchmarkRasterizeAll(b *testing.B) {
 			switch op := tc.Op.(type) {
 			case testcases.Fill:
 				if op.Rule == testcases.EvenOdd {
-					r.FillEvenOdd(tc.Path, emit)
+					r.FillEvenOdd(tc.Path.Iter(), emit)
 				} else {
-					r.FillNonZero(tc.Path, emit)
+					r.FillNonZero(tc.Path.Iter(), emit)
 				}
 			case testcases.Stroke:
 				r.Width = op.Width
@@ -332,7 +332,7 @@ func BenchmarkRasterizeAll(b *testing.B) {
 				r.MiterLimit = op.MiterLimit
 				r.Dash = op.Dash
 				r.DashPhase = op.DashPhase
-				r.Stroke(tc.Path, emit)
+				r.Stroke(tc.Path.Iter(), emit)
 			}
 		}
 	}

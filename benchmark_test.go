@@ -46,12 +46,13 @@ func BenchmarkRasterizerMethodA(b *testing.B) {
 			innerR := float64(size) * 0.30
 
 			oPath := makeOPath(center, center, outerR, innerR)
+			oPathIter := oPath.Iter()
 
 			b.ResetTimer()
 			b.ReportAllocs()
 
 			for b.Loop() {
-				r.FillEvenOdd(oPath, func(y, xMin int, coverage []float32) {
+				r.FillEvenOdd(oPathIter, func(y, xMin int, coverage []float32) {
 					row := dst.Pix[y*dst.Stride+xMin:]
 					for i, c := range coverage {
 						row[i] = uint8(c * 255)
@@ -79,12 +80,13 @@ func BenchmarkRasterizerMethodB(b *testing.B) {
 			innerR := float64(size) * 0.30
 
 			oPath := makeOPath(center, center, outerR, innerR)
+			oPathIter := oPath.Iter()
 
 			b.ResetTimer()
 			b.ReportAllocs()
 
 			for b.Loop() {
-				r.FillEvenOdd(oPath, func(y, xMin int, coverage []float32) {
+				r.FillEvenOdd(oPathIter, func(y, xMin int, coverage []float32) {
 					row := dst.Pix[y*dst.Stride+xMin:]
 					for i, c := range coverage {
 						row[i] = uint8(c * 255)

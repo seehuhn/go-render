@@ -34,7 +34,7 @@ type strokeSegment struct {
 // Stroke renders the path as a stroked outline using Width, Cap, Join,
 // MiterLimit, Dash, and DashPhase. The emit callback receives coverage
 // row-by-row; its slice argument is valid only during the call.
-func (r *Rasterizer) Stroke(p *path.Data, emit func(y, xMin int, coverage []float32)) {
+func (r *Rasterizer) Stroke(p path.Path, emit func(y, xMin int, coverage []float32)) {
 	// Flatten path into subpaths (results stored in r.segs, etc.)
 	r.flattenPath(p)
 	if len(r.segsOffsets) == 0 && len(r.degeneratePoints) == 0 {
@@ -151,8 +151,8 @@ func (r *Rasterizer) getDashedSegments(i int) []strokeSegment {
 //   - r.segsOffsets: start index of each subpath in segs
 //   - r.subpathClosed: whether each subpath is closed
 //   - r.degeneratePoints: degenerate subpaths (no orientation)
-func (r *Rasterizer) flattenPath(p *path.Data) {
-	// Clear buffers (preserving capacity)
+func (r *Rasterizer) flattenPath(p path.Path) {
+	// clear buffers (preserving capacity)
 	r.segs = r.segs[:0]
 	r.segsOffsets = r.segsOffsets[:0]
 	r.subpathClosed = r.subpathClosed[:0]
@@ -164,23 +164,20 @@ func (r *Rasterizer) flattenPath(p *path.Data) {
 	inSubpath := false
 	sawDrawingCmd := false // tracks if we saw LineTo/QuadTo/CubeTo (for degenerate detection)
 
-	// Walk the path using direct field access (no iterator allocation)
-	coordIdx := 0
-	for _, cmd := range p.Cmds {
+	for cmd, pts := range p {
 		switch cmd {
 		case path.CmdMoveTo:
-			// Close previous subpath if needed
+			// close previous subpath if needed
 			if inSubpath && (len(r.segs) > subpathStartIdx || sawDrawingCmd) {
 				if len(r.segs) == subpathStartIdx {
-					// Degenerate subpath (no orientation) - collect for special handling
+					// degenerate subpath (no orientation) - collect for special handling
 					r.degeneratePoints = append(r.degeneratePoints, subpathStartPt)
 				} else {
 					r.segsOffsets = append(r.segsOffsets, subpathStartIdx)
 					r.subpathClosed = append(r.subpathClosed, false)
 				}
 			}
-			currentPt = p.Coords[coordIdx]
-			coordIdx++
+			currentPt = pts[0]
 			subpathStartPt = currentPt
 			subpathStartIdx = len(r.segs)
 			inSubpath = true
@@ -188,49 +185,36 @@ func (r *Rasterizer) flattenPath(p *path.Data) {
 
 		case path.CmdLineTo:
 			if !inSubpath {
-				coordIdx++
 				continue
 			}
 			sawDrawingCmd = true
-			r.addStrokeSegment(currentPt, p.Coords[coordIdx])
-			currentPt = p.Coords[coordIdx]
-			coordIdx++
+			r.addStrokeSegment(currentPt, pts[0])
+			currentPt = pts[0]
 
 		case path.CmdQuadTo:
 			if !inSubpath {
-				coordIdx += 2
 				continue
 			}
 			sawDrawingCmd = true
-			p0 := currentPt
-			p1 := p.Coords[coordIdx]   // control point
-			p2 := p.Coords[coordIdx+1] // endpoint
-			r.flattenQuadratic(p0, p1, p2, r.addStrokeSegment)
-			currentPt = p2
-			coordIdx += 2
+			r.flattenQuadratic(currentPt, pts[0], pts[1], r.addStrokeSegment)
+			currentPt = pts[1]
 
 		case path.CmdCubeTo:
 			if !inSubpath {
-				coordIdx += 3
 				continue
 			}
 			sawDrawingCmd = true
-			p0 := currentPt
-			p1 := p.Coords[coordIdx]   // control point 1
-			p2 := p.Coords[coordIdx+1] // control point 2
-			p3 := p.Coords[coordIdx+2] // endpoint
-			r.flattenCubic(p0, p1, p2, p3, r.addStrokeSegment)
-			currentPt = p3
-			coordIdx += 3
+			r.flattenCubic(currentPt, pts[0], pts[1], pts[2], r.addStrokeSegment)
+			currentPt = pts[2]
 
 		case path.CmdClose:
 			if inSubpath {
-				// Add closing segment if needed
+				// add closing segment if needed
 				if currentPt != subpathStartPt {
 					r.addStrokeSegment(currentPt, subpathStartPt)
 				}
 				if len(r.segs) == subpathStartIdx {
-					// Degenerate closed subpath - collect for special handling
+					// degenerate closed subpath - collect for special handling
 					r.degeneratePoints = append(r.degeneratePoints, subpathStartPt)
 				} else {
 					r.segsOffsets = append(r.segsOffsets, subpathStartIdx)
@@ -244,10 +228,10 @@ func (r *Rasterizer) flattenPath(p *path.Data) {
 		}
 	}
 
-	// Handle unclosed subpath at end
+	// handle unclosed subpath at end
 	if inSubpath && (len(r.segs) > subpathStartIdx || sawDrawingCmd) {
 		if len(r.segs) == subpathStartIdx {
-			// Degenerate subpath - collect for special handling
+			// degenerate subpath - collect for special handling
 			r.degeneratePoints = append(r.degeneratePoints, subpathStartPt)
 		} else {
 			r.segsOffsets = append(r.segsOffsets, subpathStartIdx)

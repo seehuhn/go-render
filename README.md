@@ -26,7 +26,9 @@ clip := rect.Rect{XMin: 0, YMin: 0, XMax: 100, YMax: 100}
 r := raster.NewRasterizer(clip)
 
 r.CTM = matrix.Scale(2, 2) // optional transform
-r.FillNonZero(path, func(y, xMin int, coverage []float32) {
+
+var p path.Path // iterator over path segments
+r.FillNonZero(p, func(y, xMin int, coverage []float32) {
     // coverage[i] is the coverage for pixel (xMin+i, y)
     // range: 0.0 (outside) to 1.0 (inside)
 })
