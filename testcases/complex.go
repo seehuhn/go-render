@@ -153,10 +153,8 @@ func glyphLikeShape() *path.Data {
 
 // spiralPath builds an Archimedean spiral that overlaps itself.
 func spiralPath(cx, cy, rMin, rMax float64, turns float64) *path.Data {
-	steps := int(turns * 32) // 32 segments per turn
-	if steps < 8 {
-		steps = 8
-	}
+	// 32 segments per turn
+	steps := max(int(turns*32), 8)
 
 	totalAngle := turns * 2 * math.Pi
 	rGrowth := (rMax - rMin) / totalAngle

@@ -329,7 +329,7 @@ func figureEight(cx, cy, width, height float64) *path.Data {
 // highWindingRect builds a rectangle wound multiple times in the same direction.
 func highWindingRect(cx, cy, size float64, windings int) *path.Data {
 	p := &path.Data{}
-	for i := 0; i < windings; i++ {
+	for range windings {
 		p = p.
 			MoveTo(pt(cx-size, cy-size)).
 			LineTo(pt(cx+size, cy-size)).

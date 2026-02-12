@@ -82,8 +82,8 @@ func rectangleGrid(rows, cols, width, height int, gap float64) *path.Data {
 	cellH := float64(height) / float64(rows)
 
 	p := &path.Data{}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			x1 := float64(col)*cellW + gap
 			y1 := float64(row)*cellH + gap
 			x2 := float64(col+1)*cellW - gap

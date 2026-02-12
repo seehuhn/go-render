@@ -312,13 +312,7 @@ func arc(cx, cy, r float64, startFraction, endFraction float64) *path.Data {
 	}
 
 	// For a 3/4 arc (0 to 0.75), we draw 3 quadrants
-	numQuadrants := int(totalFraction * 4)
-	if numQuadrants < 1 {
-		numQuadrants = 1
-	}
-	if numQuadrants > 4 {
-		numQuadrants = 4
-	}
+	numQuadrants := min(max(int(totalFraction*4), 1), 4)
 
 	// Start at center
 	p := (&path.Data{}).

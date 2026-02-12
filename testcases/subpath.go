@@ -158,8 +158,8 @@ func manySmallShapes(rows, cols int) *path.Data {
 	spacing := 14.0
 
 	p := &path.Data{}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			cx := 10.0 + float64(col)*spacing
 			cy := 10.0 + float64(row)*spacing
 
